@@ -19,7 +19,7 @@ Date: 2026-10-13. Environment: local Apple Silicon macOS, installed `/Applicatio
 | Build integrity                           | `npm run package` builds the UI, packages Electron, seals the local application signature and passes strict recursive `codesign` verification.                                                                               |
 | Production dependencies                   | `npm audit --omit=dev` reported zero vulnerabilities.                                                                                                                                                                        |
 
-The last completed installed desktop run passed five tests in 59.4 seconds. It excluded the actual display-capture test because the macOS session was locked. Generated screenshots are in `artifacts/`; the latest executable test report is in `playwright-report/index.html`.
+The last completed installed desktop run passed five tests in approximately 1.1 minutes. It excluded the actual display-capture test because the macOS session was locked. Generated screenshots are in `artifacts/`; the latest executable test report is in `playwright-report/index.html`.
 
 ## Pending native screen verification
 
