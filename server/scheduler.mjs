@@ -1,3 +1,4 @@
+import { collectValidationImages } from "./validation-images.mjs";
 import { randomUUID, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,6 +16,7 @@ const activeStates = new Set([
   "running",
   "waiting",
   "recovering",
+  "collecting",
 ]);
 const terminal = new Set([
   "completed",
@@ -77,6 +79,14 @@ export class Scheduler {
     };
   }
   start() {
+    for (const a of this.store
+      .list("attempts")
+      .filter((a) => a.completedAt && !a.validationArtifactsCollectedAt))
+      this.reports.enqueue({
+        key: "images:" + a.id,
+        run: () => this.captureValidationImages(a),
+        fail: () => {},
+      });
     for (const a of this.store
       .list("attempts")
       .filter((a) => a.reportState === "pending"))
@@ -282,6 +292,9 @@ export class Scheduler {
         executionState: "reserved",
         waitReason: null,
         currentAttemptId: attempt.id,
+        validationImages: [],
+        validationImageIssues: [],
+        validationArtifactsCollectedAt: null,
       });
       this.store.event(task.id, "reserved", { attemptId: attempt.id });
     });
@@ -447,7 +460,7 @@ export class Scheduler {
         !["completed", "failed", "cancelled", "interrupted"].includes(s.status),
     );
     const latest = owned.at(-1) ?? root;
-    const evidence = snapshotEvidence(p, [...runIds]);
+    let evidence = snapshotEvidence(p, [...runIds]);
     const pendingIds = new Set(
       p.runtimeRequests.filter((r) => r.status === "pending").map((r) => r.id),
     );
@@ -469,7 +482,7 @@ export class Scheduler {
     this.store.update("attempts", attempt.id, {
       runId: root.id,
       runIds: [...runIds],
-      state: working?.status ?? (children.length ? "waiting" : latest.status),
+      state: working?.status ?? (children.length ? "waiting" : "collecting"),
       evidence,
       questions,
       workspace: p.thread.worktreePath ?? attempt.workspace,
@@ -477,11 +490,20 @@ export class Scheduler {
     this.store.update("tasks", attempt.taskId, {
       executionState: questions.length
         ? "waiting"
-        : (working?.status ?? (children.length ? "waiting" : latest.status)),
+        : (working?.status ?? (children.length ? "waiting" : "collecting")),
       questions,
       error: null,
     });
     if (!working && !children.length && terminal.has(latest.status)) {
+      evidence = await this.enrichEvidence({ ...attempt, evidence });
+      const artifacts = await this.captureValidationImages(
+        {
+          ...attempt,
+          workspace: p.thread.worktreePath ?? attempt.workspace,
+          evidence,
+        },
+        false,
+      );
       const succeeded = latest.status === "completed";
       const raw = conservativeReport(evidence);
       const fileChanges = evidence
@@ -496,6 +518,9 @@ export class Scheduler {
       this.store.transaction(() => {
         this.store.update("attempts", attempt.id, {
           state: latest.status,
+          evidence,
+          evidenceEnriched: true,
+          ...artifacts,
           result: raw,
           fileChanges,
           checkpoints,
@@ -512,6 +537,7 @@ export class Scheduler {
           report: raw,
           reportState: "pending",
           resultVersion: attempt.id,
+          ...artifacts,
           completedAt: new Date().toISOString(),
         });
         this.store.event(attempt.taskId, "finished", {
@@ -525,21 +551,19 @@ export class Scheduler {
       this.queueTaskReport(attempt.id);
     } else this.notify();
   }
-  queueTaskReport(attemptId) {
-    this.reports.enqueue({
-      key: "task:" + attemptId,
-      run: async () => {
-        let a = this.store.get("attempts", attemptId);
-        const enriched = [];
-        for (const item of a.evidence ?? []) {
+  async enrichEvidence(a) {
+    const enriched = [];
+    for (let start = 0; start < (a.evidence ?? []).length; start += 4) {
+      const batch = await Promise.all(
+        a.evidence.slice(start, start + 4).map(async (item) => {
           if (["command_execution", "file_change"].includes(item.type)) {
             try {
               const full = await this.t3.call("orchestration.getTurnItem", {
                 threadId: a.threadId,
                 itemId: item.id,
               });
-              if (full.item) {
-                enriched.push({
+              if (full.item)
+                return {
                   ...item,
                   text:
                     full.item.text ??
@@ -547,14 +571,41 @@ export class Scheduler {
                     full.item.diffStr ??
                     "",
                   payload: full.item,
-                });
-                continue;
-              }
+                };
             } catch {}
           }
-          enriched.push(item);
-        }
-        a = this.store.update("attempts", a.id, { evidence: enriched });
+          return item;
+        }),
+      );
+      enriched.push(...batch);
+    }
+    return enriched;
+  }
+  async captureValidationImages(a, persist = true) {
+    const artifacts = await collectValidationImages(
+      this.store,
+      a,
+      this.t3.config,
+    );
+    if (persist) {
+      this.store.update("attempts", a.id, artifacts);
+      const task = this.store.get("tasks", a.taskId);
+      if (task?.currentAttemptId === a.id)
+        this.store.update("tasks", task.id, artifacts);
+      this.notify();
+    }
+    return artifacts;
+  }
+  queueTaskReport(attemptId) {
+    this.reports.enqueue({
+      key: "task:" + attemptId,
+      run: async () => {
+        let a = this.store.get("attempts", attemptId);
+        if (!a.evidenceEnriched)
+          a = this.store.update("attempts", a.id, {
+            evidence: await this.enrichEvidence(a),
+            evidenceEnriched: true,
+          });
         const report = await this.reports.extract("task", {
           taskId: a.taskId,
           attemptId: a.id,

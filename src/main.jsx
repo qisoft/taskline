@@ -67,6 +67,7 @@ const label = {
   waiting: "Needs input",
   queued: "Queued in T3",
   recovering: "Reconnecting",
+  collecting: "Saving screenshots",
   completed: "Completed",
   failed: "Failed",
   cancelled: "Cancelled",
@@ -112,6 +113,7 @@ function Composer({
   state,
   onClose,
   onCreated,
+  onRefresh,
   captureOnly = false,
   initialAttachments = [],
 }) {
@@ -119,6 +121,7 @@ function Composer({
     state.settings.lastProjectId || state.projects[0]?.id || "",
   );
   const [threadId, setThread] = useState(state.settings.lastThreadId || "");
+  const [epicEditor, setEpicEditor] = useState(false);
   const [groupId, setGroup] = useState(state.settings.lastGroupId || "");
   const [prompt, setPrompt] = useState(
     () => sessionStorage.getItem("taskline-draft") || "",
@@ -293,7 +296,17 @@ function Composer({
         </div>
         <div className="composer-targets">
           <label>
-            Epic
+            <span className="epic-field-label">
+              Epic
+              <button
+                type="button"
+                className="text-button"
+                aria-label="Create new epic"
+                onClick={() => setEpicEditor(true)}
+              >
+                <Plus size={12} /> New epic
+              </button>
+            </span>
             <select
               aria-label="Epic"
               value={groupId}
@@ -342,6 +355,15 @@ function Composer({
           </div>
         )}
       </div>
+      {epicEditor && (
+        <EpicEditor
+          onClose={() => setEpicEditor(false)}
+          onSave={async (group) => {
+            await onRefresh();
+            setGroup(group.id);
+          }}
+        />
+      )}
       <footer className="composer-footer">
         <div className="composer-tools">
           <label className="icon-button" title="Attach screenshot">
@@ -394,6 +416,42 @@ function Composer({
     <Modal title="New task" onClose={onClose} className="composer-modal">
       {content}
     </Modal>
+  );
+}
+
+function ValidationImages({ record }) {
+  if (!record.validationImages?.length && !record.validationImageIssues?.length)
+    return null;
+  return (
+    <div className="validation-images">
+      <h4>Screenshots from T3</h4>
+      <div className="validation-gallery">
+        {record.validationImages?.map((image) => (
+          <figure key={image.id}>
+            <a href={image.url} target="_blank" rel="noreferrer">
+              <img loading="lazy" src={image.url} alt={image.name} />
+            </a>
+            <figcaption>{image.name}</figcaption>
+            <details>
+              <summary className="small muted">
+                Original references · {image.sources.length}
+              </summary>
+              {image.sources.map((source, i) => (
+                <p className="small preserve-text" key={i}>
+                  {source.reference}
+                </p>
+              ))}
+            </details>
+          </figure>
+        ))}
+      </div>
+      {record.validationImageIssues?.map((issue, i) => (
+        <p className="small muted preserve-text" key={i}>
+          Screenshot unavailable: {issue.reference}
+          {issue.message}
+        </p>
+      ))}
+    </div>
   );
 }
 
@@ -814,6 +872,7 @@ function TaskDetail({ id, state, onClose, onRefresh, onError }) {
                         </div>
                       </div>
                     ))}
+                    <ValidationImages record={task} />
                   </section>
                   {report.remainingWork?.length > 0 && (
                     <section className="detail-section">
@@ -899,6 +958,7 @@ function TaskDetail({ id, state, onClose, onRefresh, onError }) {
                   {a.result && (
                     <p className="preserve-text">{a.result.summary}</p>
                   )}
+                  <ValidationImages record={a} />
                   <code>{a.runId}</code>
                 </details>
               ))}
@@ -964,6 +1024,7 @@ function EpicEditor({ group, onClose, onSave }) {
   const [name, setName] = useState(group?.name || "");
   const [context, setContext] = useState(group?.context || "");
   const [criteria, setCriteria] = useState(group?.acceptanceCriteria || "");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   return (
     <Modal title={group ? "Edit epic" : "New epic"} onClose={onClose}>
@@ -1001,22 +1062,26 @@ function EpicEditor({ group, onClose, onSave }) {
       <footer>
         <button
           className="primary-button"
-          disabled={!name.trim()}
+          disabled={!name.trim() || busy}
           onClick={async () => {
+            if (busy) return;
+            setBusy(true);
             try {
-              await api(
+              const saved = await api(
                 group ? "/groups/" + group.id : "/groups",
                 { name, context, acceptanceCriteria: criteria },
                 group ? "PATCH" : "POST",
               );
-              onSave();
+              await onSave(saved);
               onClose();
             } catch (e) {
               setError(e.message);
+            } finally {
+              setBusy(false);
             }
           }}
         >
-          Save epic
+          {busy ? "Saving…" : "Save epic"}
         </button>
       </footer>
     </Modal>
@@ -1338,6 +1403,7 @@ function App() {
         captureOnly
         onClose={() => window.taskline?.closeCapture()}
         onCreated={refresh}
+        onRefresh={refresh}
       />
     );
   const filtered = state.tasks.filter(
@@ -1856,6 +1922,7 @@ function App() {
           state={state}
           onClose={() => setComposer(false)}
           onCreated={refresh}
+          onRefresh={refresh}
         />
       )}
       {detail && (

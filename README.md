@@ -6,7 +6,7 @@ A local macOS desktop Kanban and global capture window for T3 Code. Taskline sto
 
 Open `/Applications/Taskline.app`. Closing the board hides it; the menu bar icon and global shortcuts remain active. Quit from the Taskline menu to stop the local scheduler. Agent turns already submitted to T3 continue there and are reconciled on the next launch.
 
-- **⌘ ⇧ Space** opens the prompt window above the current application.
+- **⌘ ⇧ 1** opens the prompt window above the current application.
 - **⌘ ⇧ 2** lets you select a screen region, then opens the prompt window with that image attached.
 - **⌘ Return** submits a task from the capture window.
 - **⌘ K** searches the board; **C** opens a new task when a text field is not focused.
@@ -14,7 +14,7 @@ Open `/Applications/Taskline.app`. Closing the board hides it; the menu bar icon
 
 For screenshots, enable **Taskline** in **System Settings → Privacy & Security → Screen Recording**. The board and Settings provide an “Enable screen recording” button. macOS may request an application restart after changing this permission. No Accessibility permission is needed to register the capture shortcuts.
 
-The capture window offers the live T3 project, existing thread or a new thread, epic and model. A new thread gets a separate Git worktree. Select an existing thread to queue subsequent tasks in that conversation. Every card retains its original prompt and screenshot.
+The capture window offers the live T3 project, existing thread or a new thread, epic and model. Use **New epic** beside the epic selector to create one without leaving the task form; your prompt and attachments are preserved and the new epic is selected automatically. A new thread gets a separate Git worktree. Select an existing thread to queue subsequent tasks in that conversation. Every card retains its original prompt and screenshot.
 
 In Settings, each project has an automatic-start switch, a parallel-task limit and a base branch for new worktrees. Pause the scheduler globally or pause individual To Do tasks when preparing a backlog. Taskline serializes cards targeting the same thread and also protects shared checkout paths from concurrent execution.
 
@@ -29,7 +29,7 @@ Default data directory:
 ```text
 ~/Library/Application Support/Taskline/
 ├── taskline.sqlite         # task, attempt, epic, settings and event records
-├── blobs/                  # original attachment bytes
+├── blobs/                  # input attachments and saved result screenshots
 ├── reports/                # report schema and structured output artifacts
 └── connection.json         # T3 origin and scoped access credential, mode 0600
 ```
@@ -42,7 +42,7 @@ Taskline uses the authenticated T3 V2 orchestration protocol for launching and o
 
 Reports use the locally installed Codex CLI (`/opt/homebrew/bin/codex`) with model `gpt-6-luna`, the user's existing authentication, a read-only sandbox and structured output. Reports and epic summaries require that model to be available. If summarization fails, the original T3 result and evidence remain visible and regeneration is available. Reporting work does not occupy an agent-execution slot.
 
-Testing evidence is labeled **observed output**, **agent reported** or **no evidence**. “Observed output” requires a captured command item with output and an exit code consistent with the stated outcome. The drawer also retains original command output, file changes and attempt history.
+Testing evidence is labeled **observed output**, **agent reported** or **no evidence**. “Observed output” requires a captured command item with output and an exit code consistent with the stated outcome. The drawer also retains original command output, file changes and attempt history. Screenshots referenced by the agent as local image paths or image links appear in **How it was tested**. Taskline copies them into local storage, retains the original references and keeps each attempt's gallery in its history. Unavailable image references are shown with their retrieval error; an image does not by itself establish that a test passed.
 
 ## Development and builds
 

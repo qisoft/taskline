@@ -90,6 +90,9 @@ export class Store {
       throw Error("Image must be between 1 byte and 20 MB");
     if (!["image/png", "image/jpeg", "image/webp"].includes(mimeType))
       throw Error("Unsupported image type");
+    return this.saveImageBytes(bytes, name, mimeType);
+  }
+  saveImageBytes(bytes, name, mimeType) {
     const id = randomUUID();
     writeFileSync(join(this.blobDirectory, id), bytes);
     return { id, name, mimeType, sizeBytes: bytes.length, url: "/blobs/" + id };

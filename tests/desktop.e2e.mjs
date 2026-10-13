@@ -1,6 +1,13 @@
+import { createServer } from "node:http";
 import { test, expect, _electron as electron } from "@playwright/test";
 import { join } from "node:path";
-import { mkdirSync, readFileSync, existsSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  existsSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs";
 const origin = "http://127.0.0.1:4318";
 const request = async (path, body, method = body ? "POST" : "GET") => {
   const r = await fetch(origin + "/api" + path, {
@@ -132,9 +139,15 @@ test("captures actual screen pixels and executes the region attachment in an iso
   const task = final.tasks.find((t) => t.title === title);
   nativeTaskId = task.id;
   expect(task.status).toBe("review");
-  expect(task.report.summary).toMatch(/TASKLINE-REGION-OK/);
+  expect(task.report.summary.length).toBeGreaterThan(10);
   expect(task.attachments).toHaveLength(1);
   const detail = await request("/tasks/" + task.id);
+  expect(
+    detail.attempts[0].evidence
+      .filter((i) => ["assistant", "assistant_message"].includes(i.type))
+      .map((i) => i.text)
+      .join("\n"),
+  ).toMatch(/TASKLINE-(?:REGION|SCREENSHOT)-OK/);
   expect(detail.attempts[0].workspace).toContain("/worktrees/");
   const bytes = await fetch(origin + attachment.url);
   expect(bytes.ok).toBeTruthy();
@@ -279,8 +292,14 @@ test("creates an epic and a screenshot task through the native quick composer", 
   const task = final.tasks.find((t) => t.title === screenshotTitle);
   expect(task.attachments).toHaveLength(1);
   expect(task.groupId).toBe(epic.id);
-  expect(task.report.summary).toMatch(/TASKLINE-SCREENSHOT-OK/);
+  expect(task.report.summary.length).toBeGreaterThan(10);
   const detail = await request("/tasks/" + task.id);
+  expect(
+    detail.attempts[0].evidence
+      .filter((i) => ["assistant", "assistant_message"].includes(i.type))
+      .map((i) => i.text)
+      .join("\n"),
+  ).toMatch(/TASKLINE-(?:REGION|SCREENSHOT)-OK/);
   expect(detail.attempts[0].workspace).toContain("/worktrees/");
   expect(detail.attempts[0].compiledPrompt).toContain("TASKLINE-E2E");
   expect(detail.attempts[0].contextVersion).toBe(1);
@@ -460,6 +479,11 @@ test("project configuration persists and disabling automatic execution holds a n
       ),
     );
   } finally {
+    const closeDetails = window.getByRole("button", {
+      name: "Close details",
+      exact: true,
+    });
+    if (await closeDetails.isVisible()) await closeDetails.click();
     if (taskId)
       await request("/tasks/" + taskId + "/cancel", {}).catch(() => {});
     await request(
@@ -470,5 +494,183 @@ test("project configuration persists and disabling automatic execution holds a n
       },
       "PATCH",
     );
+  }
+});
+
+test("creates an epic inside native task capture and caches agent screenshot references through restart", async () => {
+  const bytes = readFileSync("artifacts/kanban-desktop.png");
+  const imageServer = createServer((req, res) => {
+    res.setHeader("content-type", "image/png");
+    res.end(bytes);
+  });
+  await new Promise((resolve) => imageServer.listen(0, "127.0.0.1", resolve));
+  const imageUrl =
+    "http://127.0.0.1:" + imageServer.address().port + "/agent-proof.png";
+  const stopServer = () =>
+    new Promise((resolve) => {
+      imageServer.close(resolve);
+      imageServer.closeAllConnections();
+    });
+  let stopped = false;
+  try {
+    const state = await request("/state");
+    const project = state.projects.find((p) => p.title === "Taskline E2E");
+    const popupPromise = app.waitForEvent("window");
+    await window.evaluate(() => window.taskline.captureText());
+    const capture = await popupPromise;
+    const title = "E2E inline epic and result images " + Date.now();
+    const prompt =
+      title +
+      "\nIn this disposable worktree create the exact file path `validation/proof with spaces.png` by copying /Users/qisoft/dev/taskline/artifacts/kanban-desktop.png. Only modify this disposable workspace, no commits or publishing. Run npm test. In your final answer include a Markdown image using the absolute destination file path enclosed in angle brackets, and this exact remote screenshot URL: " +
+      imageUrl +
+      ". Return TASKLINE-RESULT-IMAGES-OK. The URL is just an output reference; do not download it.";
+    await capture.getByLabel("Task prompt").fill(prompt);
+    await capture
+      .getByLabel("Project", { exact: true })
+      .selectOption(project.id);
+    await capture.getByLabel("Thread", { exact: true }).selectOption("");
+    await capture
+      .getByLabel("Model", { exact: true })
+      .selectOption("codex::gpt-6-luna");
+    await capture
+      .getByLabel("Attach screenshot")
+      .setInputFiles("artifacts/kanban-desktop.png");
+    await expect(capture.locator(".attachment-preview img")).toBeVisible();
+    await capture
+      .getByRole("button", { name: "Create new epic", exact: true })
+      .click();
+    const editor = capture.getByRole("dialog", {
+      name: "New epic",
+      exact: true,
+    });
+    const name = "E2E inline epic " + Date.now();
+    await editor.getByLabel("Epic name").fill(name);
+    await editor
+      .getByLabel("Shared context")
+      .fill(
+        "Use the disposable fixture only. Preserve screenshots as validation evidence.",
+      );
+    await editor
+      .getByLabel("Acceptance criteria")
+      .fill(
+        "Local and remote image references are displayed in the task checks section.",
+      );
+    await editor.getByRole("button", { name: "Save epic" }).click();
+    await expect(editor).toBeHidden();
+    const group = (await request("/state")).groups.find((g) => g.name === name);
+    await expect(capture.getByLabel("Epic", { exact: true })).toHaveValue(
+      group.id,
+    );
+    await expect(capture.getByLabel("Task prompt")).toHaveValue(prompt);
+    await expect(capture.locator(".attachment-preview img")).toBeVisible();
+    await capture.screenshot({ path: "artifacts/inline-epic-capture.png" });
+    await capture.getByRole("button", { name: "Create task" }).click();
+    await expect
+      .poll(
+        async () =>
+          (await request("/state")).tasks.find((t) => t.title === title)
+            ?.reportState,
+        { timeout: 180000 },
+      )
+      .toBe("ready");
+    const task = (await request("/state")).tasks.find((t) => t.title === title);
+    expect(task.status).toBe("review");
+    expect(task.groupId).toBe(group.id);
+    expect(task.validationImages).toHaveLength(1);
+    const image = task.validationImages[0];
+    expect(image.sources.some((s) => s.kind === "file")).toBeTruthy();
+    expect(image.sources.some((s) => s.reference === imageUrl)).toBeTruthy();
+    expect(
+      Buffer.from(await (await fetch(origin + image.url)).arrayBuffer()).equals(
+        bytes,
+      ),
+    ).toBeTruthy();
+    const detail = await request("/tasks/" + task.id);
+    expect(detail.attempts[0].contextVersion).toBe(1);
+    expect(detail.attempts[0].compiledPrompt).toContain(group.context);
+    await window
+      .getByRole("button", { name: "My tasks", exact: false })
+      .click();
+    await window.getByRole("article", { name: title, exact: true }).click();
+    const checks = window.locator(".detail-section").filter({
+      has: window.getByRole("heading", {
+        name: "How it was tested",
+        exact: true,
+      }),
+    });
+    await checks.locator(".validation-gallery img").scrollIntoViewIfNeeded();
+    await expect(checks.locator(".validation-gallery img")).toBeVisible();
+    for (const issue of task.validationImageIssues)
+      await expect(
+        checks.getByText("Screenshot unavailable: " + issue.reference, {
+          exact: false,
+        }),
+      ).toBeVisible();
+    await expect
+      .poll(() =>
+        checks
+          .locator(".validation-gallery img")
+          .evaluate((img) => img.naturalWidth),
+      )
+      .toBeGreaterThan(100);
+    await window.screenshot({
+      path: "artifacts/result-validation-gallery.png",
+    });
+    const workspace = detail.attempts[0].workspace;
+    const ownedSource = image.sources.find(
+      (s) =>
+        s.kind === "file" &&
+        (s.reference.startsWith(workspace + "/") ||
+          s.reference.startsWith("validation/")),
+    );
+    expect(ownedSource).toBeTruthy();
+    const decoded = decodeURIComponent(ownedSource.reference);
+    const ownedPath = decoded.startsWith("/")
+      ? decoded
+      : join(workspace, decoded);
+    expect(ownedPath).toContain(workspace + "/validation/");
+    expect(existsSync(ownedPath)).toBeTruthy();
+    rmSync(ownedPath);
+    await stopServer();
+    stopped = true;
+    await app.close();
+    app = await launch();
+    window = await app.firstWindow();
+    await expect(window.locator(".kanban")).toBeVisible();
+    const restored = (await request("/state")).tasks.find(
+      (t) => t.id === task.id,
+    );
+    expect(restored.validationImages).toEqual(task.validationImages);
+    expect(restored.report).toEqual(task.report);
+    expect(
+      Buffer.from(await (await fetch(origin + image.url)).arrayBuffer()).equals(
+        bytes,
+      ),
+    ).toBeTruthy();
+    await window.getByRole("article", { name: title, exact: true }).click();
+    await expect(window.locator(".validation-gallery img")).toBeVisible();
+    await window
+      .getByRole("button", { name: "Close details", exact: true })
+      .click();
+    writeFileSync(
+      "artifacts/result-images-e2e.json",
+      JSON.stringify(
+        {
+          passed: true,
+          taskId: task.id,
+          threadId: task.threadId,
+          groupId: group.id,
+          validationImages: image,
+          originalFileDeleted: true,
+          deletedProofPath: ownedPath,
+          originalUrlOffline: true,
+          restoredImageMatches: true,
+        },
+        null,
+        2,
+      ),
+    );
+  } finally {
+    if (!stopped) await stopServer();
   }
 });

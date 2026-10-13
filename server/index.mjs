@@ -1,3 +1,4 @@
+import { imageMime } from "./validation-images.mjs";
 import { createServer } from "node:http";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname, extname, resolve } from "node:path";
@@ -45,7 +46,7 @@ export async function startServer({
   const applicationSettings = () => ({
     id: "app",
     paused: false,
-    textShortcut: "CommandOrControl+Shift+Space",
+    textShortcut: "CommandOrControl+Shift+1",
     screenshotShortcut: "CommandOrControl+Shift+2",
     launchAtLogin: true,
     lastProjectId: null,
@@ -217,15 +218,12 @@ export async function startServer({
       }
       if (path.startsWith("/blobs/")) {
         const id = path.slice(7);
-        const metadata = store
-          .list("tasks")
-          .flatMap((t) => t.attachments ?? [])
-          .find((a) => a.id === id);
+        const bytes = store.image(id);
         res.writeHead(200, {
-          "Content-Type": metadata?.mimeType ?? "image/png",
+          "Content-Type": imageMime(bytes) ?? "application/octet-stream",
           "Cache-Control": "private, max-age=86400",
         });
-        return res.end(store.image(id));
+        return res.end(bytes);
       }
       if (path === "/api/tasks" && req.method === "POST") {
         const input = await body(req);
