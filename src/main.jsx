@@ -1031,6 +1031,7 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState(state.settings);
+  const [autoOverrides, setAutoOverrides] = useState({});
   async function connect(local) {
     setBusy(true);
     try {
@@ -1203,14 +1204,29 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
               <label className="checkbox small">
                 <input
                   type="checkbox"
-                  checked={policy?.autoStart !== false}
+                  checked={autoOverrides[p.id] ?? policy?.autoStart !== false}
+                  disabled={autoOverrides[p.id] !== undefined}
                   onChange={async (e) => {
-                    await api(
-                      "/projects/" + encodeURIComponent(p.id),
-                      { autoStart: e.target.checked },
-                      "PATCH",
-                    );
-                    onRefresh();
+                    const autoStart = e.target.checked;
+                    setAutoOverrides((current) => ({
+                      ...current,
+                      [p.id]: autoStart,
+                    }));
+                    try {
+                      await api(
+                        "/projects/" + encodeURIComponent(p.id),
+                        { autoStart },
+                        "PATCH",
+                      );
+                      await onRefresh();
+                    } catch (e) {
+                      onError(e);
+                    } finally {
+                      setAutoOverrides((current) => ({
+                        ...current,
+                        [p.id]: undefined,
+                      }));
+                    }
                   }}
                 />
                 Auto

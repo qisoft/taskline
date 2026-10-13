@@ -361,3 +361,114 @@ test("persists task results and screenshot blobs across a complete application r
     .toBeTruthy();
   await window.screenshot({ path: "artifacts/installed-app.png" });
 });
+
+test("project configuration persists and disabling automatic execution holds a new card on the board", async () => {
+  const initial = await request("/state");
+  const project = initial.projects.find((p) => p.title === "Taskline E2E");
+  const policy = (state) =>
+    state.projectSettings.find(
+      (p) => p.id === project.id || p.id === "project:" + project.id,
+    );
+  const original = policy(initial);
+  let taskId;
+  try {
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    let dialog = window.getByRole("dialog", { name: "Settings", exact: true });
+    let projectRow = dialog
+      .locator(".project-setting")
+      .filter({ hasText: project.title });
+    await projectRow.getByRole("checkbox").uncheck();
+    await expect
+      .poll(async () => policy(await request("/state")).autoStart)
+      .toBe(false);
+    await dialog.getByLabel("Parallel tasks for " + project.title).fill("3");
+    await dialog.getByLabel("Parallel tasks for " + project.title).press("Tab");
+    await expect
+      .poll(async () => policy(await request("/state")).concurrencyLimit)
+      .toBe(3);
+    await expect(
+      dialog.getByLabel("Base branch for " + project.title),
+    ).toHaveValue(original.baseRef);
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+
+    const title = "E2E project policy pause " + Date.now();
+    await window.getByRole("button", { name: "New task", exact: true }).click();
+    const composer = window.getByRole("dialog", {
+      name: "New task",
+      exact: true,
+    });
+    await composer
+      .getByLabel("Task prompt")
+      .fill(title + "\nReturn TASKLINE-POLICY-OK. Do not modify files.");
+    await composer
+      .getByLabel("Project", { exact: true })
+      .selectOption(project.id);
+    await composer.getByLabel("Thread", { exact: true }).selectOption("");
+    await composer.getByLabel("Epic", { exact: true }).selectOption("");
+    await composer
+      .getByLabel("Model", { exact: true })
+      .selectOption("codex::gpt-6-luna");
+    await composer.getByRole("button", { name: "Create task" }).click();
+    await expect(composer).toBeHidden();
+    await expect(
+      window
+        .locator(".column-todo")
+        .getByRole("article", { name: title, exact: true }),
+    ).toBeVisible();
+    taskId = (await request("/state")).tasks.find((t) => t.title === title).id;
+
+    await app.close();
+    app = await launch();
+    window = await app.firstWindow();
+    await expect(window.locator(".kanban")).toBeVisible();
+    const restored = await request("/state");
+    expect(policy(restored).concurrencyLimit).toBe(3);
+    expect(policy(restored).autoStart).toBe(false);
+    expect(restored.tasks.find((t) => t.id === taskId).status).toBe("todo");
+    expect((await request("/tasks/" + taskId)).attempts).toHaveLength(0);
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    dialog = window.getByRole("dialog", { name: "Settings", exact: true });
+    projectRow = dialog
+      .locator(".project-setting")
+      .filter({ hasText: project.title });
+    await expect(
+      dialog.getByLabel("Parallel tasks for " + project.title),
+    ).toHaveValue("3");
+    await expect(projectRow.getByRole("checkbox")).not.toBeChecked();
+    await window.screenshot({ path: "artifacts/project-policy-settings.png" });
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await window.getByRole("article", { name: title, exact: true }).click();
+    await expect(
+      window.getByRole("dialog", { name: "Task details" }),
+    ).toBeVisible();
+    await window.screenshot({
+      path: "artifacts/project-policy-queued-card.png",
+    });
+    writeFileSync(
+      "artifacts/project-policy-e2e.json",
+      JSON.stringify(
+        {
+          passed: true,
+          projectId: project.id,
+          taskId,
+          originalPolicy: original,
+          persistedPolicy: policy(restored),
+          attemptsWhilePaused: 0,
+        },
+        null,
+        2,
+      ),
+    );
+  } finally {
+    if (taskId)
+      await request("/tasks/" + taskId + "/cancel", {}).catch(() => {});
+    await request(
+      "/projects/" + encodeURIComponent(project.id),
+      {
+        concurrencyLimit: original.concurrencyLimit,
+        autoStart: original.autoStart,
+      },
+      "PATCH",
+    );
+  }
+});
