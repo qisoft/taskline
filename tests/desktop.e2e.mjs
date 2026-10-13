@@ -81,12 +81,10 @@ test("captures actual screen pixels and executes the region attachment in an iso
   await expect
     .poll(() => region.locator("#screen").evaluate((img) => img.naturalWidth))
     .toBeGreaterThan(1000);
-  const dimensions = await region
-    .locator("#screen")
-    .evaluate((img) => ({
-      width: img.naturalWidth,
-      height: img.naturalHeight,
-    }));
+  const dimensions = await region.locator("#screen").evaluate((img) => ({
+    width: img.naturalWidth,
+    height: img.naturalHeight,
+  }));
   const popupPromise = app.waitForEvent("window");
   const x = Math.max(40, bounds.x + 270),
     y = Math.max(100, bounds.y + 100);
