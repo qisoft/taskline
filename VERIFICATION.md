@@ -46,3 +46,9 @@ npm run test:live
 ```
 
 The tests intentionally launch real agent turns and consume model usage. Run them only with the designated disposable project available. For native region verification, unlock the desktop and allow Taskline Screen Recording access before starting the suite.
+
+## In-app image viewer follow-up
+
+The updated installed application passed all three tests in `tests/image-viewer.e2e.mjs`. These tests use a separate temporary SQLite database and Electron profile, with no T3 connection or agent execution. They cover card and task attachments, current validation screenshots, attempt history, board and global-capture composers, rendered fit/100% sizing, Escape, backdrop and button closing, keyboard focus, preserved drafts and the absence of external-browser calls.
+
+Only this focused suite was run for the viewer change. The earlier scheduler and real-agent results above remain the baseline; those suites were not rerun.

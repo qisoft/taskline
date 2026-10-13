@@ -1,7 +1,17 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useContext,
+  useRef,
+  createContext,
+} from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
   Plus,
+  ZoomIn,
+  ZoomOut,
   Search,
   ChevronDown,
   ChevronRight,
@@ -106,6 +116,127 @@ function Modal({ title, children, onClose, className = "" }) {
         {children}
       </section>
     </div>
+  );
+}
+
+const ImageViewerContext = createContext(null);
+function ImageViewerProvider({ children }) {
+  const [image, setImage] = useState(null);
+  const [actualSize, setActualSize] = useState(false);
+  const viewer = useRef(null);
+  const closeButton = useRef(null);
+  useEffect(() => {
+    if (!image) return;
+    const previousFocus = document.activeElement;
+    const root = document.getElementById("root");
+    const wasInert = root.inert;
+    root.inert = true;
+    closeButton.current.focus();
+    const keydown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setImage(null);
+      }
+      if (event.key === "Tab") {
+        const buttons = [...viewer.current.querySelectorAll("button")];
+        const index = buttons.indexOf(document.activeElement);
+        event.preventDefault();
+        buttons[
+          (index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length
+        ].focus();
+      }
+    };
+    document.addEventListener("keydown", keydown, true);
+    return () => {
+      document.removeEventListener("keydown", keydown, true);
+      root.inert = wasInert;
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [image]);
+  return (
+    <ImageViewerContext.Provider
+      value={(image) => {
+        setActualSize(false);
+        setImage(image);
+      }}
+    >
+      {children}
+      {image &&
+        createPortal(
+          <div
+            className="image-viewer-backdrop"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setImage(null);
+            }}
+          >
+            <section
+              ref={viewer}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Image viewer"
+              className="image-viewer"
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              <header>
+                <strong>{image.name || "Screenshot"}</strong>
+                <div className="row">
+                  <button
+                    className="button"
+                    aria-label={
+                      actualSize
+                        ? "Fit image to window"
+                        : "View image at actual size"
+                    }
+                    onClick={() => setActualSize(!actualSize)}
+                  >
+                    {actualSize ? <ZoomOut size={16} /> : <ZoomIn size={16} />}
+                    {actualSize ? "Fit" : "100%"}
+                  </button>
+                  <button
+                    ref={closeButton}
+                    className="icon-button"
+                    aria-label="Close image viewer"
+                    onClick={() => setImage(null)}
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+              </header>
+              <div
+                className={
+                  "image-viewer-stage" + (actualSize ? " actual-size" : "")
+                }
+              >
+                <img src={image.url} alt={image.name || "Screenshot"} />
+              </div>
+            </section>
+          </div>,
+          document.body,
+        )}
+    </ImageViewerContext.Provider>
+  );
+}
+function ImagePreview({ image, className, lazy = false, alt }) {
+  const openImage = useContext(ImageViewerContext);
+  return (
+    <button
+      type="button"
+      className="image-preview-button"
+      aria-label={"View image: " + (image.name || "Screenshot")}
+      onClick={(event) => {
+        event.stopPropagation();
+        openImage(image);
+      }}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
+      <img
+        className={className}
+        loading={lazy ? "lazy" : undefined}
+        src={image.url}
+        alt={alt || image.name}
+      />
+    </button>
   );
 }
 
@@ -227,8 +358,9 @@ function Composer({
           <div className="attachment-row">
             {attachments.map((a) => (
               <div className="attachment-preview" key={a.id}>
-                <img src={a.url} alt={a.name} />
+                <ImagePreview image={a} />
                 <button
+                  className="remove-attachment"
                   aria-label="Remove attachment"
                   onClick={() =>
                     setAttachments(attachments.filter((x) => x.id !== a.id))
@@ -428,9 +560,7 @@ function ValidationImages({ record }) {
       <div className="validation-gallery">
         {record.validationImages?.map((image) => (
           <figure key={image.id}>
-            <a href={image.url} target="_blank" rel="noreferrer">
-              <img loading="lazy" src={image.url} alt={image.name} />
-            </a>
+            <ImagePreview image={image} lazy />
             <figcaption>{image.name}</figcaption>
             <details>
               <summary className="small muted">
@@ -481,9 +611,9 @@ function TaskCard({ task, state, onOpen, onDragStart }) {
       </div>
       <h3>{task.title}</h3>
       {task.attachments?.[0] && (
-        <img
+        <ImagePreview
+          image={task.attachments[0]}
           className="card-image"
-          src={task.attachments[0].url}
           alt="Attached screenshot"
         />
       )}
@@ -678,9 +808,7 @@ function TaskDetail({ id, state, onClose, onRefresh, onError }) {
                   {task.originalPrompt || task.prompt}
                 </p>
                 {task.attachments?.map((a) => (
-                  <a key={a.id} href={a.url} target="_blank" rel="noreferrer">
-                    <img className="detail-image" src={a.url} alt={a.name} />
-                  </a>
+                  <ImagePreview key={a.id} image={a} className="detail-image" />
                 ))}
               </section>
               {task.questions?.length > 0 && (
@@ -1363,6 +1491,7 @@ function App() {
       timer = setTimeout(() => refresh().catch(showError), 150);
     };
     const handler = (e) => {
+      if (document.querySelector(".image-viewer")) return;
       if (e.key === "Escape") {
         setComposer(false);
         setDetail(null);
@@ -1961,4 +2090,8 @@ function App() {
     </div>
   );
 }
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(
+  <ImageViewerProvider>
+    <App />
+  </ImageViewerProvider>,
+);
