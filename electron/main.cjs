@@ -29,9 +29,8 @@ let board,
   uiOrigin = process.env.TASKLINE_UI_ORIGIN || apiOrigin,
   settings,
   previousApp = null,
-  regionWindow = null,
-  regionSource = null,
-  regionDisplay = null;
+  regionCapturePromise = null;
+const regionWindows = new Map();
 const get = async (p) => (await fetch(apiOrigin + "/api" + p)).json();
 async function post(p, data) {
   const r = await fetch(apiOrigin + "/api" + p, {
@@ -105,7 +104,11 @@ function restoreFocus() {
   )
     execFile("/usr/bin/open", ["-b", previousApp], () => {});
 }
-async function showCapture(attachment = null, keepFocus = false) {
+async function showCapture(
+  attachment = null,
+  keepFocus = false,
+  targetDisplay = null,
+) {
   if (capture && !capture.isDestroyed()) {
     capture.show();
     capture.focus();
@@ -113,7 +116,9 @@ async function showCapture(attachment = null, keepFocus = false) {
   }
   if (!keepFocus) await rememberFocus();
   pendingCapture = attachment;
-  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const display =
+    targetDisplay ??
+    screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const width = 640,
     height = attachment ? 520 : 440;
   capture = new BrowserWindow({
@@ -144,61 +149,101 @@ async function showCapture(attachment = null, keepFocus = false) {
     restoreFocus();
   });
 }
+function closeRegionWindows() {
+  const windows = [...regionWindows.values()];
+  regionWindows.clear();
+  for (const entry of windows)
+    if (!entry.window.isDestroyed()) entry.window.close();
+}
 async function captureRegion() {
-  if (regionWindow && !regionWindow.isDestroyed()) {
-    regionWindow.focus();
+  if (regionCapturePromise) return regionCapturePromise;
+  if (regionWindows.size) {
+    const display = screen.getDisplayNearestPoint(
+      screen.getCursorScreenPoint(),
+    );
+    const entry = [...regionWindows.values()].find(
+      (e) => e.display.id === display.id,
+    );
+    (entry ?? regionWindows.values().next().value).window.focus();
     return;
   }
+  regionCapturePromise = createRegionWindows();
+  try {
+    return await regionCapturePromise;
+  } finally {
+    regionCapturePromise = null;
+  }
+}
+async function createRegionWindows() {
   if (capture && !capture.isDestroyed()) capture.close();
   await rememberFocus();
-  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const displays = screen.getAllDisplays();
   try {
-    const sources = await desktopCapturer.getSources({
-      types: ["screen"],
-      thumbnailSize: {
-        width: Math.round(display.size.width * display.scaleFactor),
-        height: Math.round(display.size.height * display.scaleFactor),
-      },
-      fetchWindowIcons: false,
-    });
-    const source =
-      sources.find((s) => s.display_id === String(display.id)) || sources[0];
-    if (!source || source.thumbnail.isEmpty())
-      throw Error(
-        process.platform === "darwin" &&
-          systemPreferences.getMediaAccessStatus("screen") === "granted"
-          ? "No screen is available. Unlock your Mac and try again."
-          : "Allow Taskline screen recording in System Settings → Privacy & Security.",
-      );
-    regionSource = source.thumbnail;
-    regionDisplay = display;
-    regionWindow = new BrowserWindow({
-      x: display.bounds.x,
-      y: display.bounds.y,
-      width: display.bounds.width,
-      height: display.bounds.height,
-      frame: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      resizable: false,
-      movable: false,
-      backgroundColor: "#111111",
-      webPreferences: {
-        preload,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-      },
-    });
-    regionWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    regionWindow.setAlwaysOnTop(true, "screen-saver");
-    await regionWindow.loadFile(path.join(__dirname, "region.html"));
-    regionWindow.focus();
-    regionWindow.on("closed", () => {
-      regionWindow = null;
-      regionSource = null;
-    });
+    // Capture every source before showing any overlay, at that display's pixel size.
+    const captures = await Promise.all(
+      displays.map(async (display) => {
+        const sources = await desktopCapturer.getSources({
+          types: ["screen"],
+          thumbnailSize: {
+            width: Math.round(display.bounds.width * display.scaleFactor),
+            height: Math.round(display.bounds.height * display.scaleFactor),
+          },
+          fetchWindowIcons: false,
+        });
+        const source = sources.find((s) => s.display_id === String(display.id));
+        if (!source || source.thumbnail.isEmpty())
+          throw Error(
+            process.platform === "darwin" &&
+              systemPreferences.getMediaAccessStatus("screen") === "granted"
+              ? "No screen is available for " +
+                  (display.label || "display " + display.id) +
+                  ". Unlock your Mac and try again."
+              : "Allow Taskline screen recording in System Settings → Privacy & Security.",
+          );
+        return { display, source: source.thumbnail };
+      }),
+    );
+    const loading = [];
+    for (const { display, source } of captures) {
+      const window = new BrowserWindow({
+        ...display.bounds,
+        show: false,
+        frame: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        acceptFirstMouse: true,
+        // Frameless capture must cover Dock/menu-bar space, not macOS's work area.
+        enableLargerThanScreen: true,
+        hasShadow: false,
+        roundedCorners: false,
+        resizable: false,
+        movable: false,
+        backgroundColor: "#111111",
+        webPreferences: {
+          preload,
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+        },
+      });
+      const id = window.webContents.id;
+      regionWindows.set(id, { window, display, source });
+      window.on("closed", () => regionWindows.delete(id));
+      window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      window.setAlwaysOnTop(true, "screen-saver");
+      loading.push(window.loadFile(path.join(__dirname, "region.html")));
+    }
+    await Promise.all(loading);
+    for (const { window } of regionWindows.values()) window.showInactive();
+    const nearest = screen.getDisplayNearestPoint(
+      screen.getCursorScreenPoint(),
+    );
+    const focused = [...regionWindows.values()].find(
+      (e) => e.display.id === nearest.id,
+    );
+    (focused ?? regionWindows.values().next().value)?.window.focus();
   } catch (e) {
+    closeRegionWindows();
     new Notification({
       title: "Screen capture unavailable",
       body: e.message,
@@ -289,35 +334,34 @@ async function createTray() {
   );
   tray.on("click", createBoard);
 }
-ipcMain.handle("region:image", () => regionSource?.toDataURL() ?? null);
+ipcMain.handle(
+  "region:image",
+  (event) => regionWindows.get(event.sender.id)?.source.toDataURL() ?? null,
+);
 ipcMain.handle("region:cancel", () => {
-  regionWindow?.close();
+  closeRegionWindows();
   restoreFocus();
 });
 ipcMain.handle("region:finish", async (event, rectangle) => {
-  if (
-    !regionWindow ||
-    event.sender.id !== regionWindow.webContents.id ||
-    !regionSource
-  )
-    throw Error("No region capture is active");
-  const size = regionSource.getSize(),
-    scaleX = size.width / regionDisplay.bounds.width,
-    scaleY = size.height / regionDisplay.bounds.height;
+  const entry = regionWindows.get(event.sender.id);
+  if (!entry) throw Error("No region capture is active");
+  const size = entry.source.getSize(),
+    scaleX = size.width / entry.display.bounds.width,
+    scaleY = size.height / entry.display.bounds.height;
   const x = Math.max(0, Math.round(rectangle.x * scaleX)),
     y = Math.max(0, Math.round(rectangle.y * scaleY));
   const width = Math.min(size.width - x, Math.round(rectangle.width * scaleX)),
     height = Math.min(size.height - y, Math.round(rectangle.height * scaleY));
   if (width < 1 || height < 1) throw Error("Select a non-empty screen region");
-  const bytes = regionSource.crop({ x, y, width, height }).toPNG();
-  regionWindow.close();
+  const bytes = entry.source.crop({ x, y, width, height }).toPNG();
+  closeRegionWindows();
   const image = await post("/attachments", {
     base64: bytes.toString("base64"),
     name:
       "Screen region " + new Date().toISOString().replaceAll(":", "-") + ".png",
     mimeType: "image/png",
   });
-  await showCapture(image, true);
+  await showCapture(image, true, entry.display);
   return image;
 });
 ipcMain.handle("capture:pending", () => pendingCapture);

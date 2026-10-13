@@ -52,3 +52,9 @@ The tests intentionally launch real agent turns and consume model usage. Run the
 The updated installed application passed all three tests in `tests/image-viewer.e2e.mjs`. These tests use a separate temporary SQLite database and Electron profile, with no T3 connection or agent execution. They cover card and task attachments, current validation screenshots, attempt history, board and global-capture composers, rendered fit/100% sizing, Escape, backdrop and button closing, keyboard focus, preserved drafts and the absence of external-browser calls.
 
 Only this focused suite was run for the viewer change. The earlier scheduler and real-agent results above remain the baseline; those suites were not rerun.
+
+## Multi-monitor capture follow-up
+
+The old installed application reproduced the reported geometry error: an overlay requested at (0, 0) was placed at (75, 30), the left Dock/menu-bar inset. It also created only one overlay on a two-monitor desktop. The fix allows a frameless window to retain full display bounds and creates a separate source-bound overlay per display.
+
+The updated installed application passed the three capture-only checks in `tests/region-capture.e2e.mjs`: full native/content/renderer bounds, selection and exact cropped PNG bytes on both monitors, and Escape/repeated-invocation behavior. The actual displays were 3440×1440 at 1× and 2560×1440 at 2× (5120×2880 pixels). A 120×90-point selection produced 120×90 and 240×180-pixel PNGs respectively. The prompt opened on the selected monitor. No task or agent turn was launched by these tests. Geometry and per-monitor records are in `artifacts/region-*.json`.

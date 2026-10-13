@@ -7,7 +7,7 @@ A local macOS desktop Kanban and global capture window for T3 Code. Taskline sto
 Open `/Applications/Taskline.app`. Closing the board hides it; the menu bar icon and global shortcuts remain active. Quit from the Taskline menu to stop the local scheduler. Agent turns already submitted to T3 continue there and are reconciled on the next launch.
 
 - **⌘ ⇧ 1** opens the prompt window above the current application.
-- **⌘ ⇧ 2** lets you select a screen region, then opens the prompt window with that image attached.
+- **⌘ ⇧ 2** opens region selection on every connected monitor, including the Dock and menu bar. Drag on the desired monitor; the prompt window opens there with that image attached. Esc cancels selection on all monitors.
 - **⌘ Return** submits a task from the capture window.
 - **⌘ K** searches the board; **C** opens a new task when a text field is not focused.
 - Type, paste or use macOS Dictation / your existing voice typing application in the focused prompt field. Speech recognition is supplied by that tool or macOS; Taskline does not send microphone audio to a separate transcription service.
