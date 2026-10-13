@@ -1,0 +1,9 @@
+node_modules/
+dist/
+release/
+artifacts/
+playwright-report/
+test-results/
+.data/
+*.log
+.t3-token
