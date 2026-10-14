@@ -1325,6 +1325,7 @@ pre {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 24px;
 }
 .epic-field-label .text-button {
   display: inline-flex;

@@ -22,6 +22,37 @@ The lifecycle is **To Do → In Progress → Review → Done**. T3 completion mo
 
 Epics contain shared context and acceptance criteria. Each attempt freezes the context version it received. Editing the epic affects future attempts. Luna summarizes member task reports into achievements, questions, blockers, testing coverage and next actions. The summary does not override authoritative task statuses.
 
+## CLI and planning a backlog
+
+The installed `taskline` command talks to the same local API and SQLite database as the desktop app. It is available from any terminal, including an agent terminal inside T3 Code. Run `taskline --help` for the command reference, or add `--json` for machine-readable results.
+
+```sh
+# Existing project: hold new work while planning.
+taskline project pause website
+taskline epic add --project website --name "Large feature" --context-file plan.md
+taskline task add --project website --epic "Large feature" --prompt "Implement the first part"
+taskline task add --project website --epic "Large feature" --prompt-file task-two.md
+taskline task list --project website --json
+# Start taking queued tasks, respecting concurrency and thread ordering.
+taskline project activate website
+```
+
+New projects are registered in T3 with an existing Git workspace and default to **Paused**:
+
+```sh
+taskline project create --name "New project" --path /absolute/path/to/repo --paused
+taskline project set "New project" --limit 3 --base main
+taskline project activate "New project"
+```
+
+Use `--active` on creation only when immediate execution is intended. `--mkdir` allows T3 to create a missing directory; initialize its Git history before scheduling tasks in separate worktrees. Pausing a project prevents new cards from being taken and allows accepted/running work to finish. The project header and Settings show **Active / Paused** and can change the same persisted mode. A global scheduler pause still holds all projects until `taskline resume` or the global resume control is used.
+
+Without `--project`, the CLI resolves the project from the current Git workspace, including worktrees. Projects and epics accept unique names or IDs. Tasks accept a full ID or a unique `TL-ABCD` code. `--thread new` (the default) starts a separate worktree; use `taskline thread list` and `--thread ID` for an existing thread. `--image file.png` attaches an image, and `--prompt-file -` reads stdin. `taskline model list` lists the current server's configured models.
+
+Task commands include `show`, `update`, `pause`, `resume`, `cancel`, `accept`, `retry`, `revise`, `answer`, `approve`, `report`, and `delete`. Epic commands include `list`, `show`, `add`, `update`, `summarize`, `close`, `reopen`, and `delete`. Queued prompts can be edited; completed work uses a revision so its original evidence remains intact. `taskline status` reports the connection and global scheduler state. `taskline start` launches the installed app when it is not running.
+
+The executable is bundled at `/Applications/Taskline.app/Contents/Resources/taskline.mjs` and the installed command links to it, so app updates also update the CLI. To reinstall the link, run `node scripts/install-cli.mjs`; an optional directory argument chooses another bin directory. Node 24+ must be on PATH. `TASKLINE_URL` or `--url` selects another Taskline API address.
+
 ## Data and connection
 
 Default data directory:

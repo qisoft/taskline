@@ -30,6 +30,20 @@ export class Store {
       this.db.exec(
         `CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY, data TEXT NOT NULL);`,
       );
+    const projectsByGroup = new Map();
+    for (const task of this.list("tasks")) {
+      if (!task.groupId || !task.projectId) continue;
+      if (!projectsByGroup.has(task.groupId))
+        projectsByGroup.set(task.groupId, new Set());
+      projectsByGroup.get(task.groupId).add(task.projectId);
+    }
+    this.transaction(() => {
+      for (const group of this.list("groups")) {
+        const projects = projectsByGroup.get(group.id);
+        if (!group.projectId && projects?.size === 1)
+          this.put("groups", { ...group, projectId: [...projects][0] });
+      }
+    });
   }
   list(table) {
     return this.db

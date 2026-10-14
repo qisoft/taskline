@@ -1,3 +1,4 @@
+import { ProjectService } from "./projects.mjs";
 import { imageMime } from "./validation-images.mjs";
 import { createServer } from "node:http";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
@@ -10,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { Store } from "./store.mjs";
 import { T3Client } from "./t3.mjs";
 import { Scheduler } from "./scheduler.mjs";
+import { recordTargetUsage } from "./target-history.mjs";
 const exec = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const defaultDataDir = join(
@@ -43,6 +45,7 @@ export async function startServer({
   const config = store.config();
   const t3 = new T3Client(config);
   const scheduler = new Scheduler(store, t3, notify);
+  const projects = new ProjectService(store, scheduler, notify);
   const applicationSettings = () => ({
     id: "app",
     paused: false,
@@ -53,6 +56,18 @@ export async function startServer({
     lastThreadId: null,
     ...store.settings("app"),
   });
+  const validateProject = (projectId) => {
+    if (!scheduler.projects.some((p) => p.id === projectId))
+      throw Error("Choose an existing T3 project");
+  };
+  const validateGroup = (groupId, projectId) => {
+    if (!groupId) return;
+    const group = store.get("groups", groupId);
+    if (!group) throw Error("Epic not found");
+    if (group.projectId !== projectId)
+      throw Error("Choose an epic in this project");
+    if (group.status === "done") throw Error("Choose an active epic");
+  };
   const state = () => ({
     tasks: store
       .list("tasks")
@@ -141,13 +156,14 @@ export async function startServer({
   }
   const server = createServer(async (req, res) => {
     try {
-      const url = new URL(req.url, "http://127.0.0.1:" + port);
+      const requestPort = server.address()?.port ?? port;
+      const url = new URL(req.url, "http://127.0.0.1:" + requestPort);
       const path = url.pathname;
       if (
         req.headers.origin &&
         ![
-          "http://127.0.0.1:" + port,
-          "http://localhost:" + port,
+          "http://127.0.0.1:" + requestPort,
+          "http://localhost:" + requestPort,
           "http://127.0.0.1:4317",
           "http://localhost:4317",
         ].includes(req.headers.origin)
@@ -225,6 +241,8 @@ export async function startServer({
         });
         return res.end(bytes);
       }
+      if (path === "/api/projects" && req.method === "POST")
+        return respond(res, await projects.create(await body(req)), 201);
       if (path === "/api/tasks" && req.method === "POST") {
         const input = await body(req);
         if (input.prompt?.length > 100000)
@@ -239,8 +257,7 @@ export async function startServer({
           )
         )
           throw Error("Choose a thread in this project");
-        if (input.groupId && !store.get("groups", input.groupId))
-          throw Error("Group not found");
+        validateGroup(input.groupId, input.projectId);
         const now = new Date().toISOString();
         const task = {
           id: randomUUID(),
@@ -271,12 +288,18 @@ export async function startServer({
             projectId: task.projectId,
             threadId: task.threadId,
           });
-          store.put("settings", {
-            ...applicationSettings(),
-            lastProjectId: task.projectId,
-            lastThreadId: task.threadId,
-            lastGroupId: task.groupId,
-          });
+          store.put(
+            "settings",
+            recordTargetUsage(
+              applicationSettings(),
+              {
+                projectId: task.projectId,
+                threadId: task.threadId,
+                groupId: task.groupId,
+              },
+              task.createdAt,
+            ),
+          );
         });
         notify();
         scheduler.signal();
@@ -339,9 +362,30 @@ export async function startServer({
           return respond(res, store.get("tasks", id));
         }
         if (req.method === "PATCH" || action === "update") {
+          if ("groupId" in input && input.groupId !== task.groupId)
+            validateGroup(input.groupId, task.projectId);
           if (input.status === "done" && task.status !== "review")
             throw Error("Only a reviewed task can be accepted");
           const patch = {};
+          if ("prompt" in input) {
+            if (task.status !== "todo")
+              throw Error(
+                "Only queued prompts can be edited; request a revision for completed tasks",
+              );
+            if (!input.prompt?.trim() || input.prompt.length > 100000)
+              throw Error("Write a prompt below 100,000 characters");
+            patch.prompt = input.prompt.trim();
+            if (!task.currentAttemptId) patch.originalPrompt = patch.prompt;
+          }
+          if (
+            input.status &&
+            !["todo", "review", "done", "cancelled", "failed"].includes(
+              input.status,
+            )
+          )
+            throw Error("Invalid task status");
+          if (input.status === "review" && !task.currentAttemptId)
+            throw Error("A task must execute before it can be reviewed");
           for (const key of [
             "title",
             "groupId",
@@ -370,9 +414,11 @@ export async function startServer({
       if (path === "/api/groups" && req.method === "POST") {
         const input = await body(req);
         if (!input.name?.trim()) throw Error("Enter an epic name");
+        validateProject(input.projectId);
         const group = {
           id: randomUUID(),
           name: input.name.trim(),
+          projectId: input.projectId,
           context: input.context ?? "",
           acceptanceCriteria: input.acceptanceCriteria ?? "",
           contextVersion: 1,
@@ -405,6 +451,19 @@ export async function startServer({
           return respond(res, { ok: true });
         }
         if (req.method === "PATCH") {
+          if ("projectId" in input && input.projectId !== group.projectId) {
+            validateProject(input.projectId);
+            if (group.projectId)
+              throw Error("An epic cannot move to another project");
+            if (
+              store
+                .list("tasks")
+                .some(
+                  (t) => t.groupId === id && t.projectId !== input.projectId,
+                )
+            )
+              throw Error("All epic tasks must belong to the selected project");
+          }
           if (
             input.status === "done" &&
             store
@@ -432,6 +491,30 @@ export async function startServer({
           return respond(res, update);
         }
       }
+      if (path === "/api/selection" && req.method === "POST") {
+        const input = await body(req);
+        validateProject(input.projectId);
+        if (
+          input.threadId &&
+          !scheduler.threads.some(
+            (t) =>
+              t.id === input.threadId &&
+              t.projectId === input.projectId &&
+              !t.archivedAt &&
+              !t.deletedAt &&
+              (t.lineage?.relationshipToParent ?? t.relationshipToParent) !==
+                "subagent",
+          )
+        )
+          throw Error("Choose a thread in this project");
+        if ("groupId" in input) validateGroup(input.groupId, input.projectId);
+        const updated = store.put(
+          "settings",
+          recordTargetUsage(applicationSettings(), input),
+        );
+        notify();
+        return respond(res, updated);
+      }
       if (path === "/api/settings" && req.method === "PATCH") {
         const input = await body(req);
         const updated = store.put("settings", {
@@ -446,19 +529,7 @@ export async function startServer({
       if (path.startsWith("/api/projects/") && req.method === "PATCH") {
         const id = decodeURIComponent(path.slice("/api/projects/".length));
         const input = await body(req);
-        const limit = Number(input.concurrencyLimit);
-        if (
-          input.concurrencyLimit !== undefined &&
-          (!Number.isInteger(limit) || limit < 1 || limit > 16)
-        )
-          throw Error("Parallel limit must be 1–16");
-        const settings = store.put("settings", {
-          ...scheduler.projectSettings(id),
-          ...input,
-          id: "project:" + id,
-        });
-        notify();
-        scheduler.signal();
+        const settings = projects.update(id, input);
         return respond(res, settings);
       }
       if (path.startsWith("/api/"))

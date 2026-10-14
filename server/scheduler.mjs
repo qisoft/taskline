@@ -67,7 +67,7 @@ export class Scheduler {
         if (head.startsWith("ref: refs/heads/")) baseRef = head.slice(16);
       }
     } catch {}
-    return {
+    const policy = {
       id,
       concurrencyLimit: 2,
       autoStart: true,
@@ -76,6 +76,10 @@ export class Scheduler {
       baseRef,
       runtimeMode: "full-access",
       ...this.store.settings("project:" + id),
+    };
+    return {
+      ...policy,
+      mode: policy.autoStart === false ? "paused" : "active",
     };
   }
   start() {
@@ -160,7 +164,15 @@ export class Scheduler {
           );
         for (const task of tasks) {
           const policy = this.projectSettings(task.projectId);
-          if (!policy.autoStart) continue;
+          if (!policy.autoStart) {
+            if (task.waitReason !== "Project is paused")
+              this.store.update("tasks", task.id, {
+                waitReason: "Project is paused",
+              });
+            continue;
+          }
+          if (task.waitReason === "Project is paused")
+            this.store.update("tasks", task.id, { waitReason: null });
           const active = this.store
             .list("attempts")
             .filter((a) => activeStates.has(a.state));

@@ -41,6 +41,14 @@ import {
   CircleHelp,
 } from "lucide-react";
 import "./style.css";
+import { projectModel } from "./composer-defaults.mjs";
+import {
+  defaultProject,
+  projectTargets,
+  recentProjects,
+  recentThreads,
+} from "./task-targets.mjs";
+import { recordTargetUsage } from "../server/target-history.mjs";
 import "@fontsource-variable/inter";
 if (window.taskline) document.body.classList.add("desktop");
 
@@ -247,35 +255,41 @@ function Composer({
   onRefresh,
   captureOnly = false,
   initialAttachments = [],
+  initialProjectId,
+  initialGroupId,
+  onSelection,
 }) {
-  const [projectId, setProject] = useState(
-    state.settings.lastProjectId || state.projects[0]?.id || "",
+  const [projectId, setProject] = useState(() =>
+    defaultProject(state, initialProjectId),
   );
-  const [threadId, setThread] = useState(state.settings.lastThreadId || "");
+  const [threadId, setThread] = useState(
+    () => projectTargets(state, projectId).threadId,
+  );
   const [epicEditor, setEpicEditor] = useState(false);
-  const [groupId, setGroup] = useState(state.settings.lastGroupId || "");
+  const [groupId, setGroup] = useState(
+    () => projectTargets(state, projectId, initialGroupId).groupId,
+  );
   const [prompt, setPrompt] = useState(
     () => sessionStorage.getItem("taskline-draft") || "",
   );
-  const [model, setModel] = useState(() => {
-    const p = state.projectSettings.find(
-      (s) => s.id === "project:" + projectId || s.id === projectId,
-    );
-    return (p?.instanceId || "codex") + "::" + (p?.model || "gpt-6-luna");
-  });
+  const [model, setModel] = useState(() =>
+    projectModel(state, projectId, threadId),
+  );
   const [attachments, setAttachments] = useState(initialAttachments);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const threads = state.threads.filter(
-    (t) =>
-      t.projectId === projectId &&
-      !t.archivedAt &&
-      (t.lineage?.relationshipToParent ?? t.relationshipToParent) !==
-        "subagent",
-  );
+  const threads = recentThreads(state, projectId);
+  const remember = (input) =>
+    onSelection({ projectId, ...input }).catch((e) => setError(e.message));
   useEffect(() => {
     if (threadId && !threads.some((t) => t.id === threadId)) setThread("");
   }, [projectId, state.threads]);
+  const groups = state.groups.filter(
+    (g) => g.projectId === projectId && g.status !== "done",
+  );
+  useEffect(() => {
+    if (groupId && !groups.some((g) => g.id === groupId)) setGroup("");
+  }, [projectId, state.groups, groupId]);
   useEffect(() => {
     sessionStorage.setItem("taskline-draft", prompt);
   }, [prompt]);
@@ -380,21 +394,16 @@ function Composer({
               aria-label="Project"
               value={projectId}
               onChange={(e) => {
-                setProject(e.target.value);
-                setThread("");
-                const p = state.projectSettings.find(
-                  (s) =>
-                    s.id === "project:" + e.target.value ||
-                    s.id === e.target.value,
-                );
-                setModel(
-                  (p?.instanceId || "codex") +
-                    "::" +
-                    (p?.model || "gpt-6-luna"),
-                );
+                const nextProject = e.target.value;
+                const targets = projectTargets(state, nextProject);
+                setProject(nextProject);
+                setThread(targets.threadId);
+                setGroup(targets.groupId);
+                setModel(projectModel(state, nextProject, targets.threadId));
+                remember({ projectId: nextProject });
               }}
             >
-              {state.projects.map((p) => (
+              {recentProjects(state).map((p) => (
                 <option value={p.id} key={p.id}>
                   {p.title}
                 </option>
@@ -408,13 +417,8 @@ function Composer({
               value={threadId}
               onChange={(e) => {
                 setThread(e.target.value);
-                const thread = threads.find((t) => t.id === e.target.value);
-                if (thread)
-                  setModel(
-                    thread.providerInstanceId +
-                      "::" +
-                      thread.modelSelection.model,
-                  );
+                setModel(projectModel(state, projectId, e.target.value));
+                remember({ threadId: e.target.value || null });
               }}
             >
               <option value="">New thread · separate worktree</option>
@@ -442,25 +446,29 @@ function Composer({
             <select
               aria-label="Epic"
               value={groupId}
-              onChange={(e) => setGroup(e.target.value)}
+              onChange={(e) => {
+                setGroup(e.target.value);
+                remember({ groupId: e.target.value || null });
+              }}
             >
               <option value="">No epic</option>
-              {state.groups
-                .filter((g) => g.status !== "done")
-                .map((g) => (
-                  <option value={g.id} key={g.id}>
-                    {g.name}
-                  </option>
-                ))}
+              {groups.map((g) => (
+                <option value={g.id} key={g.id}>
+                  {g.name}
+                </option>
+              ))}
             </select>
           </label>
           <label>
-            Model
+            <span className="epic-field-label">Model</span>
             <select
               aria-label="Model"
               value={model}
               onChange={(e) => setModel(e.target.value)}
             >
+              {!state.models?.some(
+                (m) => m.instanceId + "::" + m.id === model,
+              ) && <option value={model}>{model.split("::")[1]}</option>}
               {(state.models?.length
                 ? state.models
                 : [
@@ -489,10 +497,13 @@ function Composer({
       </div>
       {epicEditor && (
         <EpicEditor
+          projects={state.projects}
+          projectId={projectId}
           onClose={() => setEpicEditor(false)}
           onSave={async (group) => {
             await onRefresh();
             setGroup(group.id);
+            remember({ groupId: group.id });
           }}
         />
       )}
@@ -765,11 +776,17 @@ function TaskDetail({ id, state, onClose, onRefresh, onError }) {
               }}
             >
               <option value="">No epic</option>
-              {state.groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
+              {state.groups
+                .filter(
+                  (g) =>
+                    g.projectId === task.projectId &&
+                    (g.status !== "done" || g.id === task.groupId),
+                )
+                .map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
             </select>
             <span>Created</span>
             <strong>{time(task.createdAt)}</strong>
@@ -1148,7 +1165,10 @@ function TaskDetail({ id, state, onClose, onRefresh, onError }) {
     </div>
   );
 }
-function EpicEditor({ group, onClose, onSave }) {
+function EpicEditor({ group, projects, projectId, onClose, onSave }) {
+  const [selectedProject, setSelectedProject] = useState(
+    group?.projectId || projectId || "",
+  );
   const [name, setName] = useState(group?.name || "");
   const [context, setContext] = useState(group?.context || "");
   const [criteria, setCriteria] = useState(group?.acceptanceCriteria || "");
@@ -1157,6 +1177,22 @@ function EpicEditor({ group, onClose, onSave }) {
   return (
     <Modal title={group ? "Edit epic" : "New epic"} onClose={onClose}>
       <div className="form-body">
+        <label>
+          Project
+          <select
+            aria-label="Epic project"
+            value={selectedProject}
+            onChange={(e) => setSelectedProject(e.target.value)}
+            disabled={!!group?.projectId}
+          >
+            <option value="">Choose a project</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.title}
+              </option>
+            ))}
+          </select>
+        </label>
         <label>
           Name
           <input
@@ -1190,14 +1226,19 @@ function EpicEditor({ group, onClose, onSave }) {
       <footer>
         <button
           className="primary-button"
-          disabled={!name.trim() || busy}
+          disabled={!name.trim() || !selectedProject || busy}
           onClick={async () => {
             if (busy) return;
             setBusy(true);
             try {
               const saved = await api(
                 group ? "/groups/" + group.id : "/groups",
-                { name, context, acceptanceCriteria: criteria },
+                {
+                  name,
+                  context,
+                  acceptanceCriteria: criteria,
+                  projectId: selectedProject,
+                },
                 group ? "PATCH" : "POST",
               );
               await onSave(saved);
@@ -1397,6 +1438,7 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
               <label className="checkbox small">
                 <input
                   type="checkbox"
+                  aria-label={"Active project " + p.title}
                   checked={autoOverrides[p.id] ?? policy?.autoStart !== false}
                   disabled={autoOverrides[p.id] !== undefined}
                   onChange={async (e) => {
@@ -1422,7 +1464,9 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
                     }
                   }}
                 />
-                Auto
+                {(autoOverrides[p.id] ?? policy?.autoStart !== false)
+                  ? "Active"
+                  : "Paused"}
               </label>
             </div>
           );
@@ -1465,7 +1509,12 @@ function App() {
   const [epicEditor, setEpicEditor] = useState(null);
   const [error, setError] = useState("");
   const [view, setView] = useState("board");
+  const [projectModeBusy, setProjectModeBusy] = useState(false);
   const [epicPanel, setEpicPanel] = useState(false);
+  const selectionQueue = useRef(Promise.resolve());
+  const pendingSelections = useRef(0);
+  const latestSettings = useRef(null);
+  const initialized = useRef(false);
   const captureOnly = new URLSearchParams(location.search).has("capture");
   useEffect(() => {
     const check = () => window.taskline?.desktopInfo().then(setDesktop);
@@ -1475,8 +1524,39 @@ function App() {
   }, []);
   async function refresh() {
     const s = await api("/state");
+    if (pendingSelections.current && latestSettings.current)
+      s.settings = latestSettings.current;
+    else latestSettings.current = s.settings;
+    if (!initialized.current && s.projects.length) {
+      initialized.current = true;
+      const initialProject = defaultProject(s);
+      setProject(initialProject || "all");
+      setGroup(projectTargets(s, initialProject).groupId || "all");
+    }
     setState(s);
     return s;
+  }
+  function rememberSelection(input) {
+    latestSettings.current = recordTargetUsage(
+      latestSettings.current || state.settings,
+      input,
+    );
+    setProject(input.projectId);
+    setGroup(
+      projectTargets(
+        { ...state, settings: latestSettings.current },
+        input.projectId,
+      ).groupId || "all",
+    );
+    setState((previous) => ({ ...previous, settings: latestSettings.current }));
+    pendingSelections.current++;
+    const pending = selectionQueue.current.then(() => api("/selection", input));
+    selectionQueue.current = pending
+      .catch(() => {})
+      .finally(() => {
+        pendingSelections.current--;
+      });
+    return pending;
   }
   const showError = (e) => {
     setError(e.message || String(e));
@@ -1533,6 +1613,7 @@ function App() {
         onClose={() => window.taskline?.closeCapture()}
         onCreated={refresh}
         onRefresh={refresh}
+        onSelection={rememberSelection}
       />
     );
   const filtered = state.tasks.filter(
@@ -1547,6 +1628,9 @@ function App() {
   );
   const selectedGroup = state.groups.find((g) => g.id === group);
   const selectedProject = state.projects.find((p) => p.id === project);
+  const projectGroups = state.groups.filter(
+    (g) => project === "all" || g.projectId === project,
+  );
   const policy = state.projectSettings.find(
     (s) => s.id === "project:" + project || s.id === project,
   );
@@ -1632,19 +1716,22 @@ function App() {
             className={project === "all" ? "active" : ""}
             onClick={() => {
               setProject("all");
+              setGroup("all");
               setView("board");
             }}
           >
             <Inbox size={15} />
             All projects
           </button>
-          {state.projects.map((p) => (
+          {recentProjects(state).map((p) => (
             <button
               key={p.id}
               className={project === p.id ? "active" : ""}
               onClick={() => {
                 setProject(p.id);
+                setGroup(projectTargets(state, p.id).groupId || "all");
                 setView("board");
+                rememberSelection({ projectId: p.id }).catch(showError);
               }}
             >
               <span className="project-symbol" aria-hidden="true">
@@ -1683,6 +1770,42 @@ function App() {
             </strong>
           </div>
           <div className="row">
+            {selectedProject && (
+              <button
+                className="button project-mode-button"
+                disabled={projectModeBusy}
+                aria-label={
+                  (policy?.autoStart === false
+                    ? "Activate project "
+                    : "Pause project ") + selectedProject.title
+                }
+                title="Paused projects keep queued tasks; running turns continue."
+                onClick={async () => {
+                  setProjectModeBusy(true);
+                  try {
+                    await api(
+                      "/projects/" + encodeURIComponent(selectedProject.id),
+                      {
+                        mode: policy?.autoStart === false ? "active" : "paused",
+                      },
+                      "PATCH",
+                    );
+                    await refresh();
+                  } catch (error) {
+                    showError(error);
+                  } finally {
+                    setProjectModeBusy(false);
+                  }
+                }}
+              >
+                {policy?.autoStart === false ? (
+                  <Pause size={14} />
+                ) : (
+                  <Play size={14} />
+                )}{" "}
+                {policy?.autoStart === false ? "Paused" : "Active"}
+              </button>
+            )}
             <IconButton
               title={
                 state.settings.paused ? "Resume scheduler" : "Pause scheduler"
@@ -1771,10 +1894,18 @@ function App() {
                 <select
                   aria-label="Filter by epic"
                   value={group}
-                  onChange={(e) => setGroup(e.target.value)}
+                  onChange={(e) => {
+                    setGroup(e.target.value);
+                    if (selectedProject)
+                      rememberSelection({
+                        projectId: project,
+                        groupId:
+                          e.target.value === "all" ? null : e.target.value,
+                      }).catch(showError);
+                  }}
                 >
                   <option value="all">All epics</option>
-                  {state.groups.map((g) => (
+                  {projectGroups.map((g) => (
                     <option value={g.id} key={g.id}>
                       {g.name}
                     </option>
@@ -1836,8 +1967,10 @@ function App() {
                 const tasks = filtered
                   .filter((t) =>
                     column.id === "todo"
-                      ? ["todo", "failed", "cancelled"].includes(t.status)
-                      : t.status === column.id,
+                      ? ["todo", "failed"].includes(t.status)
+                      : column.id === "done"
+                        ? ["done", "cancelled"].includes(t.status)
+                        : t.status === column.id,
                   )
                   .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
                 const Icon = column.icon;
@@ -1888,7 +2021,7 @@ function App() {
         )}
         {view === "epics" && (
           <div className="epics-grid">
-            {state.groups.map((g) => {
+            {projectGroups.map((g) => {
               const tasks = state.tasks.filter((t) => t.groupId === g.id);
               return (
                 <article className="epic-card" key={g.id}>
@@ -1976,6 +2109,11 @@ function App() {
                       className="button"
                       onClick={() => {
                         setGroup(g.id);
+                        if (g.projectId)
+                          rememberSelection({
+                            projectId: g.projectId,
+                            groupId: g.id,
+                          }).catch(showError);
                         setView("board");
                         setEpicPanel(true);
                       }}
@@ -2016,7 +2154,7 @@ function App() {
                 </article>
               );
             })}
-            {state.groups.length === 0 && (
+            {projectGroups.length === 0 && (
               <div className="empty-state">
                 <Layers size={32} />
                 <h2>Bring related tasks together</h2>
@@ -2049,9 +2187,12 @@ function App() {
       {composer && (
         <Composer
           state={state}
+          initialProjectId={project}
+          initialGroupId={group}
           onClose={() => setComposer(false)}
           onCreated={refresh}
           onRefresh={refresh}
+          onSelection={rememberSelection}
         />
       )}
       {detail && (
@@ -2074,6 +2215,8 @@ function App() {
       {epicEditor && (
         <EpicEditor
           group={epicEditor.id ? epicEditor : null}
+          projects={state.projects}
+          projectId={selectedProject?.id}
           onClose={() => setEpicEditor(null)}
           onSave={refresh}
         />

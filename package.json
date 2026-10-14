@@ -54,7 +54,16 @@
         "NSSpeechRecognitionUsageDescription": "Turn dictated tasks into text."
       },
       "icon": "assets/taskline.icns"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "cli/taskline.mjs",
+        "to": "taskline.mjs"
+      }
+    ]
   },
-  "author": "qisoft"
+  "author": "qisoft",
+  "bin": {
+    "taskline": "cli/taskline.mjs"
+  }
 }
