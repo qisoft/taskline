@@ -266,6 +266,7 @@ function Composer({
     () => projectTargets(state, projectId).threadId,
   );
   const [epicEditor, setEpicEditor] = useState(false);
+  const [threadKey, setThreadKey] = useState("");
   const [groupId, setGroup] = useState(
     () => projectTargets(state, projectId, initialGroupId).groupId,
   );
@@ -282,8 +283,13 @@ function Composer({
   const remember = (input) =>
     onSelection({ projectId, ...input }).catch((e) => setError(e.message));
   useEffect(() => {
-    if (threadId && !threads.some((t) => t.id === threadId)) setThread("");
-  }, [projectId, state.threads]);
+    if (
+      threadId &&
+      threadId !== "__named__" &&
+      !threads.some((t) => t.id === threadId)
+    )
+      setThread("");
+  }, [projectId, state.threads, state.threadTargets]);
   const groups = state.groups.filter(
     (g) => g.projectId === projectId && g.status !== "done",
   );
@@ -326,7 +332,9 @@ function Composer({
       const task = await api("/tasks", {
         prompt,
         projectId,
-        threadId: threadId || null,
+        ...(threadId === "__named__"
+          ? { threadKey }
+          : { threadId: threadId || null }),
         groupId: groupId || null,
         model: model.split("::")[1],
         instanceId: model.split("::")[0],
@@ -398,6 +406,7 @@ function Composer({
                 const targets = projectTargets(state, nextProject);
                 setProject(nextProject);
                 setThread(targets.threadId);
+                setThreadKey("");
                 setGroup(targets.groupId);
                 setModel(projectModel(state, nextProject, targets.threadId));
                 remember({ projectId: nextProject });
@@ -418,10 +427,12 @@ function Composer({
               onChange={(e) => {
                 setThread(e.target.value);
                 setModel(projectModel(state, projectId, e.target.value));
-                remember({ threadId: e.target.value || null });
+                if (e.target.value !== "__named__")
+                  remember({ threadId: e.target.value || null });
               }}
             >
               <option value="">New thread · separate worktree</option>
+              <option value="__named__">Named thread · create or reuse</option>
               {threads.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.title} · {t.status}
@@ -430,6 +441,22 @@ function Composer({
             </select>
           </label>
         </div>
+        {threadId === "__named__" && (
+          <label className="named-thread-field">
+            Thread key
+            <input
+              aria-label="Thread key"
+              value={threadKey}
+              maxLength={120}
+              placeholder="e.g. checkout-api"
+              onChange={(e) => setThreadKey(e.target.value)}
+            />
+            <small>
+              Tasks with the same key in this project run in one thread. It is
+              created when the first task starts.
+            </small>
+          </label>
+        )}
         <div className="composer-targets">
           <label>
             <span className="epic-field-label">
@@ -715,6 +742,7 @@ function TaskDetail({ id, state, onClose, onRefresh, onError }) {
   }
   const project = state.projects.find((p) => p.id === task.projectId);
   const report = task.report;
+  const target = state.threadTargets?.find((t) => t.id === task.threadId);
   return (
     <div
       className="drawer-backdrop"
@@ -733,16 +761,18 @@ function TaskDetail({ id, state, onClose, onRefresh, onError }) {
             <span>TL-{id.slice(0, 4).toUpperCase()}</span>
           </div>
           <div className="row">
-            <IconButton
-              title="Open in T3 Code"
-              onClick={() =>
-                window.taskline
-                  ? window.taskline.openThread(task.threadId)
-                  : window.open("http://127.0.0.1:3773", "_blank")
-              }
-            >
-              <ArrowUpRight size={17} />
-            </IconButton>
+            {task.threadId && (!target || target.materializedAt) && (
+              <IconButton
+                title="Open in T3 Code"
+                onClick={() =>
+                  window.taskline
+                    ? window.taskline.openThread(task.threadId)
+                    : window.open("http://127.0.0.1:3773", "_blank")
+                }
+              >
+                <ArrowUpRight size={17} />
+              </IconButton>
+            )}
             <IconButton title="Close details" onClick={onClose}>
               <X size={18} />
             </IconButton>
@@ -756,6 +786,14 @@ function TaskDetail({ id, state, onClose, onRefresh, onError }) {
           <div className="detail-properties">
             <span>Project</span>
             <strong>{project?.title}</strong>
+            <span>Thread</span>
+            <strong>
+              {task.threadKey
+                ? task.threadKey +
+                  (target?.materializedAt ? "" : " · created on first start")
+                : state.threads.find((t) => t.id === task.threadId)?.title ||
+                  "New thread · separate worktree"}
+            </strong>
             <span>Model</span>
             <strong>{task.model}</strong>
             <span>Epic</span>

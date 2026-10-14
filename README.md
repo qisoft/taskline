@@ -14,7 +14,7 @@ Open `/Applications/Taskline.app`. Closing the board hides it; the menu bar icon
 
 For screenshots, enable **Taskline** in **System Settings → Privacy & Security → Screen Recording**. The board and Settings provide an “Enable screen recording” button. macOS may request an application restart after changing this permission. No Accessibility permission is needed to register the capture shortcuts.
 
-The capture window offers the live T3 project, existing thread or a new thread, epic and model. Use **New epic** beside the epic selector to create one without leaving the task form; your prompt and attachments are preserved and the new epic is selected automatically. A new thread gets a separate Git worktree. Select an existing thread to queue subsequent tasks in that conversation. Every card retains its original prompt and screenshot.
+The capture window offers the live T3 project, thread, epic and model. Use **New epic** beside the epic selector to create one without leaving the task form; your prompt and attachments are preserved and the new epic is selected automatically. A new thread gets a separate Git worktree. Select an existing thread to queue subsequent tasks in that conversation, or choose **Named thread · create or reuse** and enter a key to share a future conversation with other tasks. It is created when the first task starts; subsequent tasks use the same conversation and worktree. Named targets also appear in the thread selector before they exist in T3. Every card retains its original prompt and screenshot.
 
 In Settings, each project has an automatic-start switch, a parallel-task limit and a base branch for new worktrees. Pause the scheduler globally or pause individual To Do tasks when preparing a backlog. Taskline serializes cards targeting the same thread and also protects shared checkout paths from concurrent execution.
 
@@ -30,8 +30,8 @@ The installed `taskline` command talks to the same local API and SQLite database
 # Existing project: hold new work while planning.
 taskline project pause website
 taskline epic add --project website --name "Large feature" --context-file plan.md
-taskline task add --project website --epic "Large feature" --prompt "Implement the first part"
-taskline task add --project website --epic "Large feature" --prompt-file task-two.md
+taskline task add --project website --epic "Large feature" --thread-key feature-api --prompt "Implement the first part"
+taskline task add --project website --epic "Large feature" --thread-key feature-api --prompt-file task-two.md
 taskline task list --project website --json
 # Start taking queued tasks, respecting concurrency and thread ordering.
 taskline project activate website
@@ -48,6 +48,19 @@ taskline project activate "New project"
 Use `--active` on creation only when immediate execution is intended. `--mkdir` allows T3 to create a missing directory; initialize its Git history before scheduling tasks in separate worktrees. Pausing a project prevents new cards from being taken and allows accepted/running work to finish. The project header and Settings show **Active / Paused** and can change the same persisted mode. A global scheduler pause still holds all projects until `taskline resume` or the global resume control is used.
 
 Without `--project`, the CLI resolves the project from the current Git workspace, including worktrees. Projects and epics accept unique names or IDs. Tasks accept a full ID or a unique `TL-ABCD` code. `--thread new` (the default) starts a separate worktree; use `taskline thread list` and `--thread ID` for an existing thread. `--image file.png` attaches an image, and `--prompt-file -` reads stdin. `taskline model list` lists the current server's configured models.
+
+Use `--thread-key KEY` to bind tasks to a shared conversation that may not exist yet. Keys are case-sensitive, scoped to the project and independent of epics: one epic can contain tasks in several threads, and tasks from different epics can share a thread. Repeating the same key reserves the same durable thread ID. `taskline thread list --json` includes these targets with `status: "planned"` before launch; their reserved IDs can also be passed to `--thread ID`. The first admitted task creates the thread in a new worktree. Later tasks run sequentially there, while different keys can run concurrently up to the project limit. A lost launch response or restart retains the reservation. If a created thread is deleted or archived, its tasks wait rather than silently starting a replacement.
+
+```sh
+# Same epic, two independent execution queues.
+taskline task add --project website --epic "Large feature" --thread-key feature-api --prompt "Implement API"
+taskline task add --project website --epic "Large feature" --thread-key feature-api --prompt "Test API"
+taskline task add --project website --epic "Large feature" --thread-key feature-ui --prompt "Implement UI"
+# Retarget a queued task before it has ever started.
+taskline task update TL-ABCD --thread-key feature-api
+```
+
+Choose either `--thread` or `--thread-key`. `--thread new` explicitly gives just that task its own conversation. Epic membership supplies shared context without determining where tasks execute.
 
 Task commands include `show`, `update`, `pause`, `resume`, `cancel`, `accept`, `retry`, `revise`, `answer`, `approve`, `report`, and `delete`. Epic commands include `list`, `show`, `add`, `update`, `summarize`, `close`, `reopen`, and `delete`. Queued prompts can be edited; completed work uses a revision so its original evidence remains intact. `taskline status` reports the connection and global scheduler state. `taskline start` launches the installed app when it is not running.
 

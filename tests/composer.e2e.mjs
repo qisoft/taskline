@@ -274,6 +274,7 @@ test("switching projects restores each project's last thread and epic before sub
     page.getByLabel("Thread", { exact: true }).locator("option"),
   ).toHaveText([
     "New thread · separate worktree",
+    "Named thread · create or reuse",
     "Codex older · idle",
     "Codex newer · idle",
   ]);

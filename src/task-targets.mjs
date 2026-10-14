@@ -23,7 +23,21 @@ export function threadUsedAt(state, thread) {
   );
 }
 export function recentThreads(state, projectId) {
-  return state.threads
+  const threads = state.threads.filter(
+    (t) => t.projectId === projectId && selectableThread(t),
+  );
+  const planned = (state.threadTargets ?? [])
+    .filter(
+      (t) =>
+        t.projectId === projectId &&
+        !threads.some((thread) => thread.id === t.id),
+    )
+    .map((t) => ({
+      ...t,
+      title: t.key,
+      status: t.materializedAt ? "missing or archived" : "planned",
+    }));
+  return [...threads, ...planned]
     .filter((t) => t.projectId === projectId && selectableThread(t))
     .map((thread) => ({ thread, usedAt: threadUsedAt(state, thread) }))
     .sort((a, b) => b.usedAt - a.usedAt)

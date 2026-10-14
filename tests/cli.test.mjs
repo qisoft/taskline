@@ -150,3 +150,89 @@ test("CLI manages paused planning projects, epics, stdin tasks, updates and stat
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("CLI creates, lists and edits task-level future thread bindings without binding an epic", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "taskline-cli-threads-"));
+  const runtime = await startServer({ port: 0, dataDir: directory });
+  runtime.scheduler.stop();
+  runtime.scheduler.signal = () => {};
+  runtime.scheduler.projects = [
+    { id: "p", title: "Project", workspaceRoot: directory },
+    { id: "q", title: "Other" },
+  ];
+  runtime.scheduler.threads = [
+    { id: "existing", projectId: "p", title: "Existing", status: "idle" },
+  ];
+  const origin = "http://127.0.0.1:" + runtime.server.address().port;
+  const ok = async (args) => {
+    const result = await run(args, origin);
+    assert.equal(result.code, 0, result.err);
+    return result.data;
+  };
+  const add = async (target, project = "p", epic = "none") =>
+    ok([
+      "task",
+      "add",
+      "--project",
+      project,
+      "--epic",
+      epic,
+      "--prompt",
+      "Planned task",
+      ...target,
+    ]);
+  try {
+    const epic = await ok([
+      "epic",
+      "add",
+      "--project",
+      "p",
+      "--name",
+      "Feature",
+    ]);
+    const first = await add(["--thread-key", "api"], "p", epic.id);
+    const second = await add(["--thread-key", "api"], "p", epic.id);
+    const third = await add(["--thread-key", "ui"], "p", epic.id);
+    assert.equal(first.threadId, second.threadId);
+    assert.notEqual(first.threadId, third.threadId);
+    const other = await add(["--thread-key", "api"], "q");
+    assert.notEqual(other.threadId, first.threadId);
+    const byId = await add(["--thread", first.threadId]);
+    assert.equal(byId.threadKey, "api");
+    const threads = await ok(["thread", "list", "--project", "p"]);
+    assert.equal(threads.filter((t) => t.status === "planned").length, 2);
+    assert.equal(threads.find((t) => t.threadKey === "api").id, first.threadId);
+    assert.equal((await ok(["epic", "show", epic.id])).threadId, undefined);
+    assert.equal((await add(["--thread", "new"], "p", epic.id)).threadId, null);
+    assert.equal(
+      (await add(["--thread", "existing"], "p", epic.id)).threadId,
+      "existing",
+    );
+    const moved = await ok(["task", "update", third.id, "--thread-key", "api"]);
+    assert.equal(moved.threadId, first.threadId);
+    const separate = await ok(["task", "update", third.id, "--thread", "new"]);
+    assert.equal(separate.threadId, null);
+    assert.equal(separate.threadKey, null);
+    const conflict = await run(
+      [
+        "task",
+        "add",
+        "--project",
+        "p",
+        "--prompt",
+        "Invalid",
+        "--thread",
+        "new",
+        "--thread-key",
+        "oops",
+      ],
+      origin,
+    );
+    assert.equal(conflict.code, 1);
+    assert.match(conflict.err, /either/);
+    assert.equal(runtime.store.list("attempts").length, 0);
+  } finally {
+    runtime.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -202,3 +202,57 @@ test("selection API persists separate project histories and rejects foreign targ
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("future thread selections restore before creation and remain singular after materialization", () => {
+  const s = state();
+  s.threadTargets = [
+    {
+      id: "future",
+      projectId: "a",
+      key: "api",
+      createdAt: "2026-10-16T10:00:00Z",
+      materializedAt: null,
+    },
+    {
+      id: "foreign-future",
+      projectId: "b",
+      key: "api",
+      createdAt: "2026-10-16T10:00:00Z",
+      materializedAt: null,
+    },
+  ];
+  s.settings = recordTargetUsage(
+    s.settings,
+    { projectId: "a", threadId: "future", groupId: "a-epic" },
+    "2026-10-17T10:00:00Z",
+  );
+  assert.deepEqual(projectTargets(s, "a"), {
+    threadId: "future",
+    groupId: "a-epic",
+  });
+  assert.equal(
+    recentThreads(s, "a").filter((t) => t.id === "future").length,
+    1,
+  );
+  assert.equal(
+    recentThreads(s, "a").some((t) => t.id === "foreign-future"),
+    false,
+  );
+  s.threads.push({
+    id: "future",
+    projectId: "a",
+    title: "API",
+    status: "idle",
+  });
+  s.threadTargets[0].materializedAt = "2026-10-18T10:00:00Z";
+  assert.equal(
+    recentThreads(s, "a").filter((t) => t.id === "future").length,
+    1,
+  );
+  s.settings = recordTargetUsage(
+    s.settings,
+    { projectId: "a", threadId: null },
+    "2026-10-19T10:00:00Z",
+  );
+  assert.equal(projectTargets(s, "a").threadId, "");
+});

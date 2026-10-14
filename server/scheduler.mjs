@@ -131,6 +131,16 @@ export class Scheduler {
       );
     this.projects = projects.projects;
     this.threads = shell.threads ?? [];
+    for (const target of this.store.list("threadTargets"))
+      if (
+        !target.materializedAt &&
+        this.threads.some(
+          (t) => t.id === target.id && t.projectId === target.projectId,
+        )
+      )
+        this.store.update("threadTargets", target.id, {
+          materializedAt: new Date().toISOString(),
+        });
     this.environment = await this.t3.http("/.well-known/t3/environment");
     this.connected = true;
     this.error = null;
@@ -197,9 +207,15 @@ export class Scheduler {
           )
             continue;
           const thread = task.threadId
-            ? this.threads.find((t) => t.id === task.threadId)
+            ? this.threads.find(
+                (t) => t.id === task.threadId && !t.archivedAt && !t.deletedAt,
+              )
             : null;
-          if (task.threadId && !thread) {
+          const target = task.threadKey
+            ? this.store.get("threadTargets", task.threadId)
+            : null;
+          const pendingThread = target && !target.materializedAt;
+          if (task.threadId && !thread && !pendingThread) {
             this.store.update("tasks", task.id, {
               waitReason: "Target thread is missing or archived",
             });
@@ -282,7 +298,12 @@ export class Scheduler {
       taskId: task.id,
       projectId: task.projectId,
       threadId: task.threadId ?? randomUUID(),
-      newThread: !task.threadId,
+      newThread:
+        !task.threadId ||
+        Boolean(
+          task.threadKey &&
+          !this.store.get("threadTargets", task.threadId)?.materializedAt,
+        ),
       commandId: randomUUID(),
       messageId: randomUUID(),
       runId: null,
@@ -333,7 +354,7 @@ export class Scheduler {
           commandId: attempt.commandId,
           threadId: attempt.threadId,
           projectId: attempt.projectId,
-          title: task.title,
+          title: task.threadKey || task.title,
           modelSelection: {
             instanceId: attempt.instanceId,
             model: attempt.model,
@@ -372,6 +393,7 @@ export class Scheduler {
         });
         projection = await this.t3.snapshot(attempt.threadId);
       }
+      this.observeThread(projection);
       const run = projection.runs.find(
         (r) => r.userMessageId === attempt.messageId,
       );
@@ -415,6 +437,30 @@ export class Scheduler {
       this.notify();
     }
   }
+  observeThread(projection) {
+    const thread = projection.thread;
+    const target = this.store.get("threadTargets", thread.id);
+    if (
+      target &&
+      target.projectId === thread.projectId &&
+      !target.materializedAt
+    )
+      this.store.update("threadTargets", target.id, {
+        materializedAt: new Date().toISOString(),
+      });
+    // Shell snapshots are refreshed less often than turns finish. Use the fresh
+    // projection so the next queued task can reuse the thread immediately.
+    const active = projection.runs.find((r) => !terminal.has(r.status));
+    const cached = this.threads.find((t) => t.id === thread.id);
+    this.threads = this.threads.filter((t) => t.id !== thread.id);
+    this.threads.push({
+      ...cached,
+      ...thread,
+      activeRunId:
+        "activeRunId" in thread ? thread.activeRunId : (active?.id ?? null),
+      status: thread.status ?? active?.status ?? "idle",
+    });
+  }
   async watch(threadId) {
     if (this.subscriptions.has(threadId)) return;
     try {
@@ -438,6 +484,7 @@ export class Scheduler {
       }
       throw e;
     }
+    this.observeThread(p);
     const root = p.runs.find(
       (r) => r.id === attempt.runId || r.userMessageId === attempt.messageId,
     );

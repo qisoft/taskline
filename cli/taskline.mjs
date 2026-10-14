@@ -12,6 +12,7 @@ const options = Object.fromEntries(
     "project",
     "epic",
     "thread",
+    "thread-key",
     "prompt",
     "prompt-file",
     "title",
@@ -49,9 +50,9 @@ epic list | show ID | add --name NAME [--project PROJECT] [--context-file FILE]
 epic update ID [--name NAME] [--context TEXT] [--criteria TEXT]
 epic summarize ID | close ID | reopen ID | delete ID
 task list [--project PROJECT] [--epic EPIC] [--status STATUS] [--all]
-task add [--project PROJECT] [--epic EPIC] [--thread ID|new] --prompt TEXT
+task add [--project PROJECT] [--epic EPIC] [--thread ID|new | --thread-key KEY] --prompt TEXT
          [--prompt-file FILE|-] [--title TITLE] [--image FILE] [--model MODEL]
-task show ID | update ID [--title TITLE] [--prompt TEXT] [--epic ID|none]
+task show ID | update ID [--title TITLE] [--prompt TEXT] [--epic ID|none] [--thread ID|new | --thread-key KEY]
 task pause ID | resume ID | cancel ID | accept ID | retry ID | delete ID
 task revise ID --prompt TEXT | report ID
 task answer ID --request ID --answers '{"question_id":{"answers":["answer"]}}'
@@ -61,6 +62,8 @@ status | pause | resume | start
 Projects default to Paused when created. Activate a project explicitly to execute
 its queue. Pausing stops new starts; running T3 turns continue. New threads use
 separate Git worktrees, so use a Git workspace when creating a project.
+Tasks with the same --thread-key in one project share one future thread, created
+when the first task starts. They run sequentially, independently of epic membership.
 Projects may be addressed by ID, unique name or ID prefix. Task codes TL-ABCD
 are accepted when unique. Without --project, the current Git workspace is used.
 Use --json for structured output. --prompt-file - reads stdin.
@@ -167,6 +170,44 @@ async function main() {
     return;
   }
   const state = await api("/state");
+  const projectThreads = (projectId) => {
+    const targets = (state.threadTargets || []).filter(
+      (t) => t.projectId === projectId,
+    );
+    const threads = state.threads.filter(
+      (t) =>
+        t.projectId === projectId &&
+        !t.archivedAt &&
+        !t.deletedAt &&
+        (t.lineage?.relationshipToParent ?? t.relationshipToParent) !==
+          "subagent",
+    );
+    return [
+      ...threads.map((t) => ({
+        ...t,
+        threadKey: targets.find((target) => target.id === t.id)?.key || null,
+      })),
+      ...targets
+        .filter((t) => !threads.some((thread) => thread.id === t.id))
+        .map((t) => ({
+          ...t,
+          title: t.key,
+          threadKey: t.key,
+          status: t.materializedAt ? "missing" : "planned",
+        })),
+    ];
+  };
+  const taskTarget = (projectId) => {
+    if (v.thread !== undefined && v["thread-key"] !== undefined)
+      throw Error("Use either --thread or --thread-key");
+    if (v["thread-key"] !== undefined) return { threadKey: v["thread-key"] };
+    return {
+      threadId:
+        v.thread && v.thread !== "new"
+          ? find(projectThreads(projectId), v.thread, "thread").id
+          : null,
+    };
+  };
   function find(items, selector, label) {
     if (!selector) throw Error("Specify a " + label + " ID");
     let matches = items.filter((i) => i.id === selector);
@@ -314,16 +355,7 @@ async function main() {
   }
   if (kind === "thread" && action === "list") {
     const p = await project();
-    emit(
-      state.threads.filter(
-        (t) =>
-          t.projectId === p.id &&
-          !t.archivedAt &&
-          !t.deletedAt &&
-          (t.lineage?.relationshipToParent ?? t.relationshipToParent) !==
-            "subagent",
-      ),
-    );
+    emit(projectThreads(p.id));
     return;
   }
   if (kind === "epic") {
@@ -411,21 +443,7 @@ async function main() {
                 "epic",
               ).id
             : null;
-      const threadId =
-        v.thread && v.thread !== "new"
-          ? find(
-              state.threads.filter(
-                (t) =>
-                  t.projectId === p.id &&
-                  !t.archivedAt &&
-                  !t.deletedAt &&
-                  (t.lineage?.relationshipToParent ??
-                    t.relationshipToParent) !== "subagent",
-              ),
-              v.thread,
-              "thread",
-            ).id
-          : null;
+      const target = taskTarget(p.id);
       const attachments = [];
       for (const path of v.image || []) {
         const bytes = await readFile(resolve(path));
@@ -446,12 +464,12 @@ async function main() {
       }
       const prompt = await text("prompt", true),
         defaults = policy(p),
-        selectedThread = state.threads.find((t) => t.id === threadId);
+        selectedThread = state.threads.find((t) => t.id === target.threadId);
       emit(
         await api("/tasks", {
           projectId: p.id,
           groupId,
-          threadId,
+          ...target,
           prompt,
           title: v.title,
           model:
@@ -482,6 +500,8 @@ async function main() {
     }
     if (action === "update") {
       const patch = {};
+      if (v.thread !== undefined || v["thread-key"] !== undefined)
+        Object.assign(patch, taskTarget(t.projectId));
       if (v.title) patch.title = v.title;
       const prompt = await text("prompt");
       if (prompt !== undefined) patch.prompt = prompt;
@@ -495,7 +515,9 @@ async function main() {
                 "epic",
               ).id;
       if (!Object.keys(patch).length)
-        throw Error("Specify --title, --prompt or --epic");
+        throw Error(
+          "Specify --title, --prompt, --epic, --thread or --thread-key",
+        );
       emit(await api(path, patch, "PATCH"));
       return;
     }

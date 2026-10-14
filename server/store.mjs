@@ -26,6 +26,7 @@ export class Store {
       "settings",
       "events",
       "jobs",
+      "threadTargets",
     ])
       this.db.exec(
         `CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY, data TEXT NOT NULL);`,

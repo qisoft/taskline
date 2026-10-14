@@ -12,6 +12,7 @@ import { Store } from "./store.mjs";
 import { T3Client } from "./t3.mjs";
 import { Scheduler } from "./scheduler.mjs";
 import { recordTargetUsage } from "./target-history.mjs";
+import { taskThreadTarget } from "./thread-targets.mjs";
 const exec = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const defaultDataDir = join(
@@ -75,6 +76,7 @@ export async function startServer({
     groups: store.list("groups"),
     projects: scheduler.projects,
     threads: scheduler.threads,
+    threadTargets: store.list("threadTargets"),
     models: scheduler.models ?? [],
     projectSettings: scheduler.projects.map((p) =>
       scheduler.projectSettings(p.id),
@@ -250,13 +252,6 @@ export async function startServer({
         if (!input.prompt?.trim()) throw Error("Write or dictate a task first");
         if (!scheduler.projects.some((p) => p.id === input.projectId))
           throw Error("Choose an existing T3 project");
-        if (
-          input.threadId &&
-          !scheduler.threads.some(
-            (t) => t.id === input.threadId && t.projectId === input.projectId,
-          )
-        )
-          throw Error("Choose a thread in this project");
         validateGroup(input.groupId, input.projectId);
         const now = new Date().toISOString();
         const task = {
@@ -283,6 +278,10 @@ export async function startServer({
         };
         for (const a of task.attachments) store.image(a.id);
         store.transaction(() => {
+          Object.assign(
+            task,
+            taskThreadTarget(store, scheduler.threads, task.projectId, input),
+          );
           store.put("tasks", task);
           store.event(task.id, "created", {
             projectId: task.projectId,
@@ -377,6 +376,10 @@ export async function startServer({
             patch.prompt = input.prompt.trim();
             if (!task.currentAttemptId) patch.originalPrompt = patch.prompt;
           }
+          if ("threadId" in input || "threadKey" in input) {
+            if (task.status !== "todo" || task.currentAttemptId)
+              throw Error("Only tasks that have not started can change thread");
+          }
           if (
             input.status &&
             !["todo", "review", "done", "cancelled", "failed"].includes(
@@ -401,8 +404,21 @@ export async function startServer({
             input.status !== "doing"
           )
             throw Error("Running task status is controlled by T3");
-          const updated = store.update("tasks", id, patch);
-          store.event(id, "updated", patch);
+          const updated = store.transaction(() => {
+            if ("threadId" in input || "threadKey" in input)
+              Object.assign(
+                patch,
+                taskThreadTarget(
+                  store,
+                  scheduler.threads,
+                  task.projectId,
+                  input,
+                ),
+              );
+            const result = store.update("tasks", id, patch);
+            store.event(id, "updated", patch);
+            return result;
+          });
           notify();
           scheduler.signal();
           if (task.groupId && task.groupId !== updated.groupId)
@@ -496,6 +512,8 @@ export async function startServer({
         validateProject(input.projectId);
         if (
           input.threadId &&
+          store.get("threadTargets", input.threadId)?.projectId !==
+            input.projectId &&
           !scheduler.threads.some(
             (t) =>
               t.id === input.threadId &&
