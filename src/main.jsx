@@ -1369,7 +1369,7 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
           Connect environment
         </button>
         <hr />
-        <h3>Global capture</h3>
+        <h3>Desktop and global shortcuts</h3>
         {desktop && (
           <div className="row small">
             <span>
@@ -1387,6 +1387,21 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
               </button>
             )}
           </div>
+        )}
+        <label>
+          Board shortcut
+          <input
+            aria-label="Board shortcut"
+            value={settings.boardShortcut ?? "CommandOrControl+Shift+0"}
+            onChange={(e) =>
+              setSettings({ ...settings, boardShortcut: e.target.value })
+            }
+          />
+        </label>
+        {desktop?.boardRegistered === false && (
+          <p className="muted small">
+            Board shortcut is unavailable. Choose another combination.
+          </p>
         )}
         <label>
           Text shortcut
@@ -1407,6 +1422,16 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
               setSettings({ ...settings, screenshotShortcut: e.target.value })
             }
           />
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={settings.showInDock !== false}
+            onChange={(e) =>
+              setSettings({ ...settings, showInDock: e.target.checked })
+            }
+          />
+          Always show Taskline in the Dock
         </label>
         <label className="checkbox">
           <input
@@ -1518,14 +1543,24 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
       <footer>
         <button
           className="primary-button"
+          disabled={busy}
           onClick={async () => {
+            setBusy(true);
             try {
-              await api("/settings", settings, "PATCH");
               if (window.taskline) await window.taskline.configure(settings);
+              try {
+                await api("/settings", settings, "PATCH");
+              } catch (e) {
+                if (window.taskline)
+                  await window.taskline.configure(state.settings);
+                throw e;
+              }
               onRefresh();
               onClose();
             } catch (e) {
               onError(e);
+            } finally {
+              setBusy(false);
             }
           }}
         >

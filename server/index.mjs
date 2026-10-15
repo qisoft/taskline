@@ -52,6 +52,8 @@ export async function startServer({
     paused: false,
     textShortcut: "CommandOrControl+Shift+1",
     screenshotShortcut: "CommandOrControl+Shift+2",
+    boardShortcut: "CommandOrControl+Shift+0",
+    showInDock: true,
     launchAtLogin: true,
     lastProjectId: null,
     lastThreadId: null,

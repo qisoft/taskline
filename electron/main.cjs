@@ -43,10 +43,30 @@ async function post(p, data) {
   return result;
 }
 const preload = path.join(__dirname, "preload.cjs");
+let lastDockShownAt = null;
+async function setDockVisibility(visible) {
+  if (!app.dock || app.dock.isVisible() === visible) return;
+  if (visible) {
+    await app.dock.show();
+    lastDockShownAt = performance.now();
+  } else {
+    // Electron ignores hide() shortly after show(). Avoid redundant show calls
+    // and honor its documented macOS cooldown when toggling the preference.
+    // https://www.electronjs.org/docs/latest/api/dock/#dockhide-macos
+    const delay =
+      lastDockShownAt === null
+        ? 0
+        : Math.max(0, 1100 - (performance.now() - lastDockShownAt));
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    app.dock.hide();
+  }
+}
 function createBoard() {
   if (board && !board.isDestroyed()) {
+    if (board.isMinimized()) board.restore();
     board.show();
     board.focus();
+    app.focus({ steal: true });
     return;
   }
   board = new BrowserWindow({
@@ -251,23 +271,47 @@ async function createRegionWindows() {
     throw e;
   }
 }
-function configure(next) {
+function registerShortcuts(next) {
   globalShortcut.unregisterAll();
   const failures = [];
-  if (!globalShortcut.register(next.textShortcut, () => showCapture()))
-    failures.push("Text shortcut is already used");
-  if (
-    !globalShortcut.register(next.screenshotShortcut, () =>
-      captureRegion().catch(console.error),
-    )
-  )
-    failures.push("Screenshot shortcut is already used");
+  for (const [label, accelerator, callback] of [
+    ["Board", next.boardShortcut, createBoard],
+    ["Text", next.textShortcut, () => showCapture()],
+    [
+      "Screenshot",
+      next.screenshotShortcut,
+      () => captureRegion().catch(console.error),
+    ],
+  ]) {
+    try {
+      if (!accelerator || !globalShortcut.register(accelerator, callback))
+        failures.push(label + " shortcut is already used or empty");
+    } catch {
+      failures.push(label + " shortcut is invalid");
+    }
+  }
+  return failures;
+}
+async function configure(next) {
+  next = {
+    boardShortcut: "CommandOrControl+Shift+0",
+    showInDock: true,
+    ...next,
+  };
+  const failures = registerShortcuts(next);
+  if (failures.length) {
+    if (settings) registerShortcuts(settings);
+    throw Error(failures.join(". "));
+  }
+  await setDockVisibility(next.showInDock !== false);
   app.setLoginItemSettings({
     openAtLogin: next.launchAtLogin === true,
     openAsHidden: true,
   });
   settings = next;
-  if (failures.length) throw Error(failures.join(". "));
+  const boardMenuItem =
+    Menu.getApplicationMenu()?.getMenuItemById("open-board");
+  if (boardMenuItem) boardMenuItem.accelerator = next.boardShortcut;
   return { ok: true };
 }
 function trayImage() {
@@ -385,6 +429,8 @@ ipcMain.handle("permissions:screen", () =>
   ),
 );
 ipcMain.handle("desktop:info", () => ({
+  boardRegistered: globalShortcut.isRegistered(settings.boardShortcut),
+  dockVisible: app.dock?.isVisible() ?? null,
   textRegistered: globalShortcut.isRegistered(settings.textShortcut),
   screenshotRegistered: globalShortcut.isRegistered(
     settings.screenshotShortcut,
@@ -421,7 +467,7 @@ app
     console.log("Taskline: state loaded");
     settings = state.settings;
     try {
-      configure(settings);
+      await configure(settings);
     } catch (e) {
       console.error(e.message);
     }
@@ -437,6 +483,12 @@ app
           submenu: [
             { role: "about" },
             { type: "separator" },
+            {
+              id: "open-board",
+              label: "Open Taskline",
+              accelerator: settings.boardShortcut,
+              click: createBoard,
+            },
             {
               label: "New task",
               accelerator: settings.textShortcut,

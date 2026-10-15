@@ -4,9 +4,12 @@ A local macOS desktop Kanban and global capture window for T3 Code. Taskline sto
 
 ## Installed application
 
+Enable **Always show Taskline in the Dock** in Settings to keep its Dock icon visible while the app is running, including after closing the board. Disable it for menu-bar-only operation. Dock visibility and global shortcuts are saved locally and restored on launch.
+
 Open `/Applications/Taskline.app`. Closing the board hides it; the menu bar icon and global shortcuts remain active. Quit from the Taskline menu to stop the local scheduler. Agent turns already submitted to T3 continue there and are reconciled on the next launch.
 
 - **⌘ ⇧ 1** opens the prompt window above the current application.
+- **⌘ ⇧ 0** opens and focuses the Kanban board, including when its window is hidden or minimized. Change **Board shortcut** in Settings to use another combination.
 - **⌘ ⇧ 2** opens region selection on every connected monitor, including the Dock and menu bar. Drag on the desired monitor; the prompt window opens there with that image attached. Esc cancels selection on all monitors.
 - **⌘ Return** submits a task from the capture window.
 - **⌘ K** searches the board; **C** opens a new task when a text field is not focused.
