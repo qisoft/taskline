@@ -69,6 +69,24 @@ Task commands include `show`, `update`, `pause`, `resume`, `cancel`, `accept`, `
 
 The executable is bundled at `/Applications/Taskline.app/Contents/Resources/taskline.mjs` and the installed command links to it, so app updates also update the CLI. To reinstall the link, run `node scripts/install-cli.mjs`; an optional directory argument chooses another bin directory. Node 24+ must be on PATH. `TASKLINE_URL` or `--url` selects another Taskline API address.
 
+## Priorities and blockers
+
+Set a task's priority and blockers in the board/capture composer or in its task details. Priorities are **Urgent**, **High**, **Normal** (the default), **Low** and **No priority**. The board and CLI list tasks by priority; manual order and creation time break ties. The scheduler starts the highest-priority ready tasks within project/thread/workspace limits. Changing priority does not interrupt running turns.
+
+A task waits until **all** its blockers reach **Review** or **Done**. A failed, cancelled, paused or missing blocker keeps it waiting. Blockers can come from any project; epic membership does not constrain dependencies. The card shows whether it is blocked, and task details link both to its blockers and to the tasks it blocks. Blocker links can be edited while the task is not running. Retrying a blocker holds dependents that are still queued; already-running work continues.
+
+```sh
+taskline task add --priority high --blocked-by TL-ABCD --prompt "Implement the dependent part"
+taskline task update TL-EF12 --priority urgent --blocked-by TL-ABCD --blocked-by TL-3456
+taskline task block TL-EF12 --by TL-7890
+taskline task unblock TL-EF12 --by TL-ABCD
+taskline task update TL-EF12 --clear-blockers
+taskline task list --blocked --json
+taskline task list --priority high
+```
+
+`--blocked-by` on `add`/`update` sets the complete blocker list. Repeat it (or use comma-separated IDs) for several blockers; `block`/`unblock` add or remove individual links. `task show ID --json` includes `priority`, `blockedBy` and the currently unresolved `blockingTaskIds`. Self-dependencies and cycles are rejected. Before deleting a task referenced as a blocker, remove those links from its dependents. Dependencies control execution order; they do not merge separate worktrees. Use the same `--thread-key` when dependent work should continue in one conversation and checkout.
+
 ## Data and connection
 
 Default data directory:

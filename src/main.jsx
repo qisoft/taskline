@@ -49,6 +49,11 @@ import {
   recentThreads,
 } from "./task-targets.mjs";
 import { recordTargetUsage } from "../server/target-history.mjs";
+import {
+  priorities,
+  compareTaskPriority,
+  pendingBlockers,
+} from "../server/task-planning.mjs";
 import "@fontsource-variable/inter";
 if (window.taskline) document.body.classList.add("desktop");
 
@@ -248,6 +253,77 @@ function ImagePreview({ image, className, lazy = false, alt }) {
   );
 }
 
+function BlockerPicker({
+  state,
+  value,
+  onChange,
+  excludeId,
+  disabled = false,
+  onOpenTask,
+}) {
+  return (
+    <div className="blocker-picker">
+      {value.map((id) => {
+        const blocker = state.tasks.find((t) => t.id === id);
+        const resolved = ["review", "done"].includes(blocker?.status);
+        const text =
+          "TL-" +
+          id.slice(0, 4).toUpperCase() +
+          " · " +
+          (blocker?.title || "Missing task") +
+          " · " +
+          (blocker?.status || "missing");
+        return (
+          <div
+            className={"blocker-item" + (resolved ? " resolved" : "")}
+            key={id}
+          >
+            {onOpenTask && blocker ? (
+              <button
+                type="button"
+                className="text-button blocker-link"
+                onClick={() => onOpenTask(id)}
+              >
+                {text}
+              </button>
+            ) : (
+              <span>{text}</span>
+            )}
+            <button
+              type="button"
+              className="icon-button"
+              disabled={disabled}
+              aria-label={"Remove blocker TL-" + id.slice(0, 4).toUpperCase()}
+              onClick={() => onChange(value.filter((item) => item !== id))}
+            >
+              <X size={12} />
+            </button>
+          </div>
+        );
+      })}
+      <select
+        aria-label="Add blocking task"
+        value=""
+        disabled={disabled}
+        onChange={(e) => e.target.value && onChange([...value, e.target.value])}
+      >
+        <option value="">Add blocking task…</option>
+        {state.tasks
+          .filter((t) => t.id !== excludeId && !value.includes(t.id))
+          .map((t) => (
+            <option value={t.id} key={t.id}>
+              TL-{t.id.slice(0, 4).toUpperCase()} · {t.title} ·{" "}
+              {state.projects.find((p) => p.id === t.projectId)?.title} ·{" "}
+              {t.status}
+            </option>
+          ))}
+      </select>
+      <small className="muted">
+        All blockers must reach Review or Done before this task starts.
+      </small>
+    </div>
+  );
+}
 function Composer({
   state,
   onClose,
@@ -277,6 +353,8 @@ function Composer({
     projectModel(state, projectId, threadId),
   );
   const [attachments, setAttachments] = useState(initialAttachments);
+  const [priority, setPriority] = useState("normal");
+  const [blockedBy, setBlockedBy] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const threads = recentThreads(state, projectId);
@@ -339,6 +417,8 @@ function Composer({
         model: model.split("::")[1],
         instanceId: model.split("::")[0],
         attachments,
+        priority,
+        blockedBy,
       });
       sessionStorage.removeItem("taskline-draft");
       onCreated(task);
@@ -516,6 +596,30 @@ function Composer({
             </select>
           </label>
         </div>
+        <div className="composer-targets task-planning-fields">
+          <label>
+            Priority
+            <select
+              aria-label="Priority"
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+            >
+              {priorities.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div>
+            <span className="field-label">Blocked by</span>
+            <BlockerPicker
+              state={state}
+              value={blockedBy}
+              onChange={setBlockedBy}
+            />
+          </div>
+        </div>
         {error && (
           <div className="error" role="alert">
             {error}
@@ -628,6 +732,14 @@ function TaskCard({ task, state, onOpen, onDragStart }) {
   const group = state.groups.find((g) => g.id === task.groupId);
   const questions =
     (task.questions?.length ?? 0) + (task.report?.questions?.length ?? 0);
+  const blockers =
+    task.blockingTaskIds ??
+    pendingBlockers(task, {
+      get: (id) => state.tasks.find((t) => t.id === id),
+    });
+  const priority = priorities.find(
+    (p) => p.value === (task.priority ?? "normal"),
+  );
   return (
     <article
       className={"task-card " + (task.status === "failed" ? "failed" : "")}
@@ -644,6 +756,12 @@ function TaskCard({ task, state, onOpen, onDragStart }) {
       <div className="card-top">
         <span className="task-code">
           TL-{task.id.slice(0, 4).toUpperCase()}
+        </span>
+        <span
+          className={"priority-badge priority-" + priority?.value}
+          aria-label={"Priority: " + priority?.label}
+        >
+          {priority?.label}
         </span>
         <MoreHorizontal size={15} />
       </div>
@@ -687,9 +805,18 @@ function TaskCard({ task, state, onOpen, onDragStart }) {
           Paused
         </div>
       )}
-      {task.waitReason && task.status === "todo" && (
-        <div className="small muted">{task.waitReason}</div>
+      {blockers.length > 0 && task.status === "todo" && (
+        <div className="execution-label attention" aria-label="Task is blocked">
+          <AlertCircle size={12} />
+          Blocked by {blockers.length}{" "}
+          {blockers.length === 1 ? "task" : "tasks"}
+        </div>
       )}
+      {task.waitReason &&
+        !task.waitReason.startsWith("Blocked by ") &&
+        task.status === "todo" && (
+          <div className="small muted">{task.waitReason}</div>
+        )}
       <div className="card-bottom">
         <span className="project-tag">{project?.title || "Project"}</span>
         <div className="card-meta">
@@ -713,7 +840,7 @@ function TaskCard({ task, state, onOpen, onDragStart }) {
     </article>
   );
 }
-function TaskDetail({ id, state, onClose, onRefresh, onError }) {
+function TaskDetail({ id, state, onClose, onRefresh, onError, onOpenTask }) {
   const [detail, setDetail] = useState(null);
   const [answers, setAnswers] = useState({});
   const [revision, setRevision] = useState("");
@@ -743,6 +870,18 @@ function TaskDetail({ id, state, onClose, onRefresh, onError }) {
   const project = state.projects.find((p) => p.id === task.projectId);
   const report = task.report;
   const target = state.threadTargets?.find((t) => t.id === task.threadId);
+  async function updatePlanning(patch) {
+    setBusy(true);
+    try {
+      await api("/tasks/" + id, patch, "PATCH");
+      await onRefresh();
+    } catch (e) {
+      onError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const dependents = state.tasks.filter((t) => t.blockedBy?.includes(id));
   return (
     <div
       className="drawer-backdrop"
@@ -796,6 +935,45 @@ function TaskDetail({ id, state, onClose, onRefresh, onError }) {
             </strong>
             <span>Model</span>
             <strong>{task.model}</strong>
+            <span>Priority</span>
+            <select
+              aria-label="Task priority"
+              value={task.priority ?? "normal"}
+              disabled={busy}
+              onChange={(e) => updatePlanning({ priority: e.target.value })}
+            >
+              {priorities.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <span>Blocked by</span>
+            <BlockerPicker
+              state={state}
+              value={task.blockedBy ?? []}
+              excludeId={id}
+              disabled={busy || task.status === "doing"}
+              onChange={(blockedBy) => updatePlanning({ blockedBy })}
+              onOpenTask={onOpenTask}
+            />
+            {dependents.length > 0 && (
+              <>
+                <span>Blocks</span>
+                <div className="dependent-tasks">
+                  {dependents.map((t) => (
+                    <button
+                      type="button"
+                      className="text-button blocker-link"
+                      key={t.id}
+                      onClick={() => onOpenTask(t.id)}
+                    >
+                      TL-{t.id.slice(0, 4).toUpperCase()} · {t.title}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
             <span>Epic</span>
             <select
               aria-label="Task epic"
@@ -2045,7 +2223,7 @@ function App() {
                         ? ["done", "cancelled"].includes(t.status)
                         : t.status === column.id,
                   )
-                  .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
+                  .sort(compareTaskPriority);
                 const Icon = column.icon;
                 return (
                   <section
@@ -2270,11 +2448,13 @@ function App() {
       )}
       {detail && (
         <TaskDetail
+          key={detail}
           id={detail}
           state={state}
           onClose={() => setDetail(null)}
           onRefresh={refresh}
           onError={showError}
+          onOpenTask={setDetail}
         />
       )}
       {settings && (

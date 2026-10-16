@@ -6,6 +6,7 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 const exec = promisify(execFile);
+const priorityLevels = ["urgent", "high", "normal", "low", "none"];
 const options = Object.fromEntries(
   [
     "url",
@@ -28,6 +29,7 @@ const options = Object.fromEntries(
     "criteria",
     "criteria-file",
     "status",
+    "priority",
     "request",
     "answers",
     "decision",
@@ -35,9 +37,20 @@ const options = Object.fromEntries(
     "request-id",
   ].map((key) => [key, { type: "string" }]),
 );
-for (const key of ["json", "help", "paused", "active", "mkdir", "all"])
+for (const key of [
+  "json",
+  "help",
+  "paused",
+  "active",
+  "mkdir",
+  "all",
+  "blocked",
+  "clear-blockers",
+])
   options[key] = { type: "boolean" };
 options.image = { type: "string", multiple: true };
+options["blocked-by"] = { type: "string", multiple: true };
+options.by = { type: "string", multiple: true };
 const usage = `Taskline — local task board for T3 Code
 
 Usage: taskline <resource> <command> [id] [options]
@@ -49,10 +62,13 @@ model list
 epic list | show ID | add --name NAME [--project PROJECT] [--context-file FILE]
 epic update ID [--name NAME] [--context TEXT] [--criteria TEXT]
 epic summarize ID | close ID | reopen ID | delete ID
-task list [--project PROJECT] [--epic EPIC] [--status STATUS] [--all]
+task list [--project PROJECT] [--epic EPIC] [--status STATUS] [--priority LEVEL] [--blocked] [--all]
 task add [--project PROJECT] [--epic EPIC] [--thread ID|new | --thread-key KEY] --prompt TEXT
          [--prompt-file FILE|-] [--title TITLE] [--image FILE] [--model MODEL]
+         [--priority urgent|high|normal|low|none] [--blocked-by TASK ...]
 task show ID | update ID [--title TITLE] [--prompt TEXT] [--epic ID|none] [--thread ID|new | --thread-key KEY]
+         [--priority LEVEL] [--blocked-by TASK ... | --clear-blockers]
+task block ID --by TASK [--by TASK] | unblock ID --by TASK [--by TASK]
 task pause ID | resume ID | cancel ID | accept ID | retry ID | delete ID
 task revise ID --prompt TEXT | report ID
 task answer ID --request ID --answers '{"question_id":{"answers":["answer"]}}'
@@ -67,6 +83,10 @@ when the first task starts. They run sequentially, independently of epic members
 Projects may be addressed by ID, unique name or ID prefix. Task codes TL-ABCD
 are accepted when unique. Without --project, the current Git workspace is used.
 Use --json for structured output. --prompt-file - reads stdin.
+Priority defaults to normal. Higher priorities start first among unblocked tasks.
+Repeat --blocked-by to wait for multiple tasks; all must reach Review or Done.
+Failed/cancelled tasks remain blockers. Blockers can belong to other projects.
+On update, --blocked-by replaces the list; block/unblock adds/removes individual links.
 TASKLINE_URL / --url override http://127.0.0.1:4318. Taskline must be running.
 `;
 async function main() {
@@ -79,6 +99,11 @@ async function main() {
     return;
   }
   if (v.paused && v.active) throw Error("Choose either --paused or --active");
+  if (
+    v.priority !== undefined &&
+    !priorityLevels.includes(v.priority.toLowerCase())
+  )
+    throw Error("Choose priority: urgent, high, normal, low or none");
   const base = (
     v.url ||
     process.env.TASKLINE_URL ||
@@ -120,6 +145,19 @@ async function main() {
                   [
                     row.code || row.id,
                     row.mode || row.status || "",
+                    ...(row.priority
+                      ? [
+                          row.priority,
+                          row.blockingTaskIds?.length
+                            ? "blocked by " +
+                              row.blockingTaskIds
+                                .map(
+                                  (id) => "TL-" + id.slice(0, 4).toUpperCase(),
+                                )
+                                .join(",")
+                            : "",
+                        ]
+                      : []),
                     row.title || row.name || "",
                   ].join("\t"),
                 )
@@ -206,6 +244,24 @@ async function main() {
         v.thread && v.thread !== "new"
           ? find(projectThreads(projectId), v.thread, "thread").id
           : null,
+    };
+  };
+  const blockerIds = (values) => [
+    ...new Set(
+      values
+        .flatMap((value) => value.split(","))
+        .map((value) => find(state.tasks, value.trim(), "blocking task").id),
+    ),
+  ];
+  const planningPatch = () => {
+    if (v["blocked-by"] && v["clear-blockers"])
+      throw Error("Use either --blocked-by or --clear-blockers");
+    return {
+      ...(v.priority !== undefined
+        ? { priority: v.priority.toLowerCase() }
+        : {}),
+      ...(v["blocked-by"] ? { blockedBy: blockerIds(v["blocked-by"]) } : {}),
+      ...(v["clear-blockers"] ? { blockedBy: [] } : {}),
     };
   };
   function find(items, selector, label) {
@@ -425,6 +481,17 @@ async function main() {
         rows = rows.filter((t) => t.groupId === g.id);
       }
       if (v.status) rows = rows.filter((t) => t.status === v.status);
+      if (v.priority)
+        rows = rows.filter(
+          (t) => (t.priority ?? "normal") === v.priority.toLowerCase(),
+        );
+      if (v.blocked) rows = rows.filter((t) => t.blockingTaskIds?.length);
+      rows.sort(
+        (a, b) =>
+          priorityLevels.indexOf(a.priority ?? "normal") -
+            priorityLevels.indexOf(b.priority ?? "normal") ||
+          (a.rank ?? 0) - (b.rank ?? 0),
+      );
       emit(
         rows.map((t) => ({
           ...t,
@@ -470,6 +537,7 @@ async function main() {
           projectId: p.id,
           groupId,
           ...target,
+          ...planningPatch(),
           prompt,
           title: v.title,
           model:
@@ -498,8 +566,14 @@ async function main() {
       emit(await api(path));
       return;
     }
+    if (action === "block" || action === "unblock") {
+      if (!v.by?.length)
+        throw Error("Specify --by TASK (repeat for multiple blockers)");
+      emit(await api(path + "/" + action, { blockerIds: blockerIds(v.by) }));
+      return;
+    }
     if (action === "update") {
-      const patch = {};
+      const patch = planningPatch();
       if (v.thread !== undefined || v["thread-key"] !== undefined)
         Object.assign(patch, taskTarget(t.projectId));
       if (v.title) patch.title = v.title;
@@ -516,7 +590,7 @@ async function main() {
               ).id;
       if (!Object.keys(patch).length)
         throw Error(
-          "Specify --title, --prompt, --epic, --thread or --thread-key",
+          "Specify --title, --prompt, --epic, --thread, --thread-key, --priority or --blocked-by",
         );
       emit(await api(path, patch, "PATCH"));
       return;

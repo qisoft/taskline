@@ -13,6 +13,7 @@ import { T3Client } from "./t3.mjs";
 import { Scheduler } from "./scheduler.mjs";
 import { recordTargetUsage } from "./target-history.mjs";
 import { taskThreadTarget } from "./thread-targets.mjs";
+import { taskPlanningView, validateTaskPlanning } from "./task-planning.mjs";
 const exec = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const defaultDataDir = join(
@@ -71,10 +72,15 @@ export async function startServer({
       throw Error("Choose an epic in this project");
     if (group.status === "done") throw Error("Choose an active epic");
   };
+  const presentTask = (task) =>
+    taskPlanningView(task, new Map(store.list("tasks").map((t) => [t.id, t])));
+  const taskViews = () => {
+    const tasks = store.list("tasks");
+    const byId = new Map(tasks.map((t) => [t.id, t]));
+    return tasks.map((task) => taskPlanningView(task, byId));
+  };
   const state = () => ({
-    tasks: store
-      .list("tasks")
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    tasks: taskViews().sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     groups: store.list("groups"),
     projects: scheduler.projects,
     threads: scheduler.threads,
@@ -282,6 +288,11 @@ export async function startServer({
         store.transaction(() => {
           Object.assign(
             task,
+            { priority: "normal", blockedBy: [] },
+            validateTaskPlanning(task, input, store.list("tasks")),
+          );
+          Object.assign(
+            task,
             taskThreadTarget(store, scheduler.threads, task.projectId, input),
           );
           store.put("tasks", task);
@@ -304,7 +315,7 @@ export async function startServer({
         });
         notify();
         scheduler.signal();
-        return respond(res, task, 201);
+        return respond(res, presentTask(task), 201);
       }
       const taskRoute = path.match(/^\/api\/tasks\/([^/]+)(?:\/([^/]+))?$/);
       if (taskRoute) {
@@ -313,7 +324,7 @@ export async function startServer({
         if (!task) return respond(res, { error: "Task not found" }, 404);
         if (req.method === "GET")
           return respond(res, {
-            task,
+            task: presentTask(task),
             attempts: store.list("attempts").filter((a) => a.taskId === id),
             events: store.list("events").filter((e) => e.taskId === id),
           });
@@ -321,6 +332,17 @@ export async function startServer({
         if (req.method === "DELETE") {
           if (task.status === "doing")
             throw Error("Stop the task before deleting it");
+          const dependents = store
+            .list("tasks")
+            .filter((t) => t.blockedBy?.includes(id));
+          if (dependents.length)
+            throw Error(
+              "Remove this blocker from " +
+                dependents
+                  .map((t) => "TL-" + t.id.slice(0, 4).toUpperCase())
+                  .join(", ") +
+                " before deleting it",
+            );
           store.remove("tasks", id);
           notify();
           return respond(res, { ok: true });
@@ -360,14 +382,31 @@ export async function startServer({
           store.event(id, action, { prompt });
           notify();
           scheduler.signal();
-          return respond(res, store.get("tasks", id));
+          return respond(res, presentTask(store.get("tasks", id)));
         }
-        if (req.method === "PATCH" || action === "update") {
+        if (action === "block" || action === "unblock") {
+          if (
+            !Array.isArray(input.blockerIds) ||
+            !input.blockerIds.length ||
+            input.blockerIds.some((id) => typeof id !== "string")
+          )
+            throw Error("Specify blocking task IDs");
+          input.blockedBy =
+            action === "block"
+              ? [...new Set([...(task.blockedBy ?? []), ...input.blockerIds])]
+              : (task.blockedBy ?? []).filter(
+                  (id) => !input.blockerIds.includes(id),
+                );
+        }
+        if (
+          req.method === "PATCH" ||
+          ["update", "block", "unblock"].includes(action)
+        ) {
           if ("groupId" in input && input.groupId !== task.groupId)
             validateGroup(input.groupId, task.projectId);
           if (input.status === "done" && task.status !== "review")
             throw Error("Only a reviewed task can be accepted");
-          const patch = {};
+          const patch = validateTaskPlanning(task, input, store.list("tasks"));
           if ("prompt" in input) {
             if (task.status !== "todo")
               throw Error(
@@ -426,7 +465,7 @@ export async function startServer({
           if (task.groupId && task.groupId !== updated.groupId)
             scheduler.queueGroupReport(task.groupId);
           if (updated.groupId) scheduler.queueGroupReport(updated.groupId);
-          return respond(res, updated);
+          return respond(res, presentTask(updated));
         }
       }
       if (path === "/api/groups" && req.method === "POST") {

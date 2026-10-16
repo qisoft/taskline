@@ -236,3 +236,111 @@ test("CLI creates, lists and edits task-level future thread bindings without bin
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("CLI manages task priorities and blocker links, filters blocked tasks, and rejects cycles", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "taskline-cli-planning-"));
+  const runtime = await startServer({ port: 0, dataDir: directory });
+  runtime.scheduler.stop();
+  runtime.scheduler.signal = () => {};
+  runtime.scheduler.reports.enqueue = () => {};
+  runtime.scheduler.projects = [
+    { id: "p", title: "Planning", workspaceRoot: directory },
+    { id: "q", title: "Other" },
+  ];
+  const origin = "http://127.0.0.1:" + runtime.server.address().port;
+  const ok = async (args) => {
+    const result = await run(args, origin);
+    assert.equal(result.code, 0, result.err);
+    return result.data;
+  };
+  const add = (title, ...args) =>
+    ok(["task", "add", "--project", "p", "--prompt", title, ...args]);
+  try {
+    const a = await add("Base", "--priority", "low"),
+      b = await add(
+        "Dependent",
+        "--priority",
+        "urgent",
+        "--blocked-by",
+        "TL-" + a.id.slice(0, 4),
+      );
+    const c = await add("Another blocker");
+    assert.deepEqual(b.blockedBy, [a.id]);
+    assert.deepEqual(b.blockingTaskIds, [a.id]);
+    const rows = await ok(["task", "list", "--project", "p"]);
+    assert.deepEqual(
+      rows.map((t) => t.id),
+      [b.id, c.id, a.id],
+    );
+    assert.deepEqual(
+      (
+        await ok([
+          "task",
+          "list",
+          "--project",
+          "p",
+          "--priority",
+          "urgent",
+          "--blocked",
+        ])
+      ).map((t) => t.id),
+      [b.id],
+    );
+    await ok(["task", "block", b.id, "--by", c.id, "--by", a.id]);
+    assert.deepEqual((await ok(["task", "show", b.id])).task.blockedBy, [
+      a.id,
+      c.id,
+    ]);
+    await ok(["task", "unblock", b.id, "--by", a.id]);
+    assert.deepEqual((await ok(["task", "show", b.id])).task.blockedBy, [c.id]);
+    const cycle = await run(["task", "block", c.id, "--by", b.id], origin);
+    assert.equal(cycle.code, 1);
+    assert.match(cycle.err, /cycle/);
+    const edited = await ok([
+      "task",
+      "update",
+      b.id,
+      "--priority",
+      "high",
+      "--blocked-by",
+      a.id + "," + c.id,
+    ]);
+    assert.equal(edited.priority, "high");
+    assert.deepEqual(edited.blockedBy, [a.id, c.id]);
+    const invalid = await run(
+      ["task", "update", b.id, "--priority", "critical"],
+      origin,
+    );
+    assert.equal(invalid.code, 1);
+    assert.match(invalid.err, /priority/);
+    const conflict = await run(
+      ["task", "update", b.id, "--blocked-by", a.id, "--clear-blockers"],
+      origin,
+    );
+    assert.equal(conflict.code, 1);
+    runtime.store.update("tasks", a.id, { status: "review" });
+    runtime.store.update("tasks", c.id, { status: "done" });
+    assert.deepEqual(
+      (await ok(["task", "show", b.id])).task.blockingTaskIds,
+      [],
+    );
+    assert.equal(
+      (await ok(["task", "list", "--project", "p", "--blocked"])).length,
+      0,
+    );
+    await ok([
+      "task",
+      "update",
+      b.id,
+      "--clear-blockers",
+      "--priority",
+      "none",
+    ]);
+    assert.deepEqual((await ok(["task", "show", b.id])).task.blockedBy, []);
+    assert.equal((await ok(["task", "show", b.id])).task.priority, "none");
+    assert.equal(runtime.store.list("attempts").length, 0);
+  } finally {
+    runtime.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

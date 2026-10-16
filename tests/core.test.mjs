@@ -390,3 +390,118 @@ test("an independent new-thread task can retry a failure before its thread exist
     f.close();
   }
 });
+
+test("priority selects the next ready task without interrupting active work", async () => {
+  const f = fixture();
+  try {
+    f.store.put("settings", { id: "project:p", concurrencyLimit: 1 });
+    f.add("t1");
+    await f.scheduler.tick();
+    for (const [id, priority] of [
+      ["t2", "low"],
+      ["t3", "high"],
+      ["t4", "urgent"],
+      ["t5", "none"],
+      ["t6", "normal"],
+    ]) {
+      f.add(id);
+      f.store.update("tasks", id, { priority });
+    }
+    await f.scheduler.tick();
+    assert.equal(f.t3.launches.length, 1);
+    for (const expected of ["t4", "t3", "t6", "t2", "t5"]) {
+      const active = f.store
+        .list("attempts")
+        .find((a) => a.state === "running");
+      f.t3.projections.get(active.threadId).runs.at(-1).status = "completed";
+      await f.scheduler.tick();
+      assert.equal(
+        f.store.list("attempts").find((a) => a.state === "running").taskId,
+        expected,
+      );
+    }
+  } finally {
+    f.close();
+  }
+});
+
+test("a blocked urgent task waits without taking a slot, then reuses its blocker's thread at Review", async () => {
+  const f = fixture();
+  try {
+    const target = f.store.transaction(() =>
+      taskThreadTarget(f.store, [], "p", { threadKey: "chain" }),
+    );
+    for (const id of ["t1", "t2", "t3"]) f.add(id);
+    f.store.update("tasks", "t1", { ...target, priority: "low" });
+    f.store.update("tasks", "t2", {
+      ...target,
+      priority: "urgent",
+      blockedBy: ["t1"],
+    });
+    await f.scheduler.tick();
+    assert.equal(f.t3.launches.length, 2);
+    assert.equal(f.store.get("tasks", "t2").status, "todo");
+    assert.match(f.store.get("tasks", "t2").waitReason, /Blocked by/);
+    assert.equal(
+      f.store.list("attempts").some((a) => a.taskId === "t2"),
+      false,
+    );
+    f.t3.projections.get(target.threadId).runs[0].status = "completed";
+    await f.scheduler.tick();
+    assert.equal(f.store.get("tasks", "t1").status, "review");
+    assert.equal(f.store.get("tasks", "t2").status, "doing");
+    assert.equal(f.t3.dispatches[0].threadId, target.threadId);
+    assert.equal(f.store.get("tasks", "t2").waitReason, null);
+  } finally {
+    f.close();
+  }
+});
+
+test("all blockers must reach Review or Done; failed, cancelled, paused and missing blockers keep tasks queued", async () => {
+  for (const status of [
+    "todo",
+    "doing",
+    "failed",
+    "cancelled",
+    "missing",
+    "review",
+    "done",
+  ]) {
+    const f = fixture();
+    try {
+      f.add("t1");
+      f.store.update("tasks", "t1", { blockedBy: ["dependency"] });
+      if (status !== "missing") {
+        f.add("dependency");
+        f.store.update("tasks", "dependency", { status, paused: true });
+      }
+      await f.scheduler.tick();
+      assert.equal(
+        f.store.get("tasks", "t1").status,
+        ["review", "done"].includes(status) ? "doing" : "todo",
+        status,
+      );
+    } finally {
+      f.close();
+    }
+  }
+  const f = fixture();
+  try {
+    f.add("t1");
+    f.store.update("tasks", "t1", { blockedBy: ["a", "b"] });
+    for (const id of ["a", "b"]) {
+      f.add(id);
+      f.store.update("tasks", id, {
+        status: id === "a" ? "review" : "todo",
+        paused: true,
+      });
+    }
+    await f.scheduler.tick();
+    assert.equal(f.store.get("tasks", "t1").status, "todo");
+    f.store.update("tasks", "b", { status: "done" });
+    await f.scheduler.tick();
+    assert.equal(f.store.get("tasks", "t1").status, "doing");
+  } finally {
+    f.close();
+  }
+});

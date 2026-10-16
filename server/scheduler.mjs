@@ -1,4 +1,5 @@
 import { collectValidationImages } from "./validation-images.mjs";
+import { compareTaskPriority, pendingBlockers } from "./task-planning.mjs";
 import { randomUUID, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -167,12 +168,10 @@ export class Scheduler {
         const tasks = this.store
           .list("tasks")
           .filter((t) => t.status === "todo" && !t.paused)
-          .sort(
-            (a, b) =>
-              (a.rank ?? a.createdAt) - (b.rank ?? b.createdAt) ||
-              a.createdAt.localeCompare(b.createdAt),
-          );
-        for (const task of tasks) {
+          .sort(compareTaskPriority);
+        for (const candidate of tasks) {
+          const task = this.store.get("tasks", candidate.id);
+          if (!task || task.status !== "todo" || task.paused) continue;
           const policy = this.projectSettings(task.projectId);
           if (!policy.autoStart) {
             if (task.waitReason !== "Project is paused")
@@ -182,6 +181,21 @@ export class Scheduler {
             continue;
           }
           if (task.waitReason === "Project is paused")
+            this.store.update("tasks", task.id, { waitReason: null });
+          const blockers = pendingBlockers(task, {
+            get: (id) => this.store.get("tasks", id),
+          });
+          if (blockers.length) {
+            const waitReason =
+              "Blocked by " +
+              blockers
+                .map((id) => "TL-" + id.slice(0, 4).toUpperCase())
+                .join(", ");
+            if (task.waitReason !== waitReason)
+              this.store.update("tasks", task.id, { waitReason });
+            continue;
+          }
+          if (task.waitReason?.startsWith("Blocked by "))
             this.store.update("tasks", task.id, { waitReason: null });
           const active = this.store
             .list("attempts")
