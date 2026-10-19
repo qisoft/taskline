@@ -4,9 +4,8 @@ import { createServer } from "node:http";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir } from "node:os";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { dataDirectory, t3Home, toolCommand } from "./platform.mjs";
+import { runCommand } from "./commands.mjs";
 import { randomUUID } from "node:crypto";
 import { Store } from "./store.mjs";
 import { T3Client } from "./t3.mjs";
@@ -14,14 +13,8 @@ import { Scheduler } from "./scheduler.mjs";
 import { recordTargetUsage } from "./target-history.mjs";
 import { taskThreadTarget } from "./thread-targets.mjs";
 import { taskPlanningView, validateTaskPlanning } from "./task-planning.mjs";
-const exec = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-export const defaultDataDir = join(
-  homedir(),
-  "Library",
-  "Application Support",
-  "Taskline",
-);
+export const defaultDataDir = dataDirectory();
 const mime = {
   ".html": "text/html",
   ".js": "text/javascript",
@@ -99,28 +92,19 @@ export async function startServer({
     dataDir,
   });
   async function localConnect() {
-    const runtimePath = join(
-      homedir(),
-      ".t3",
-      "userdata",
-      "server-runtime.json",
-    );
+    const runtimePath = join(t3Home(), "userdata", "server-runtime.json");
     if (!existsSync(runtimePath))
       throw Error("Start T3 Code on this computer first.");
     const runtime = JSON.parse(readFileSync(runtimePath, "utf8"));
-    const cli = join(homedir(), ".t3", "bin", "t3");
-    if (!existsSync(cli))
-      throw Error(
-        "T3 CLI not found. Open T3 Code once to install its local command.",
-      );
-    const result = await exec(
+    const result = await runCommand(
+      toolCommand("t3"),
       cli,
       [
         "auth",
         "session",
         "issue",
         "--base-dir",
-        join(homedir(), ".t3"),
+        t3Home(),
         "--label",
         "Taskline",
         "--ttl",

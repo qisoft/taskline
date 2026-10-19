@@ -76,8 +76,12 @@ function createBoard() {
     minHeight: 650,
     title: "Taskline",
     backgroundColor: "#101012",
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 14, y: 17 },
+    ...(process.platform === "darwin"
+      ? {
+          titleBarStyle: "hiddenInset",
+          trafficLightPosition: { x: 14, y: 17 },
+        }
+      : { autoHideMenuBar: true }),
     webPreferences: {
       preload,
       contextIsolation: true,
@@ -160,7 +164,8 @@ async function showCapture(
       sandbox: true,
     },
   });
-  capture.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (process.platform !== "win32")
+    capture.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   await capture.loadURL(uiOrigin + "/?capture=1");
   capture.focus();
   capture.on("closed", () => {
@@ -218,7 +223,9 @@ async function createRegionWindows() {
               ? "No screen is available for " +
                   (display.label || "display " + display.id) +
                   ". Unlock your Mac and try again."
-              : "Allow Taskline screen recording in System Settings → Privacy & Security.",
+              : process.platform === "darwin"
+                ? "Allow Taskline screen recording in System Settings → Privacy & Security."
+                : "No screen image is available. Unlock your desktop and try again.",
           );
         return { display, source: source.thumbnail };
       }),
@@ -249,7 +256,8 @@ async function createRegionWindows() {
       const id = window.webContents.id;
       regionWindows.set(id, { window, display, source });
       window.on("closed", () => regionWindows.delete(id));
-      window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      if (process.platform !== "win32")
+        window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
       window.setAlwaysOnTop(true, "screen-saver");
       loading.push(window.loadFile(path.join(__dirname, "region.html")));
     }
@@ -423,10 +431,13 @@ ipcMain.handle("t3:open", async (_, threadId) => {
         encodeURIComponent(threadId),
     );
 });
-ipcMain.handle("permissions:screen", () =>
-  shell.openExternal(
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-  ),
+ipcMain.handle(
+  "permissions:screen",
+  () =>
+    process.platform === "darwin" &&
+    shell.openExternal(
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+    ),
 );
 ipcMain.handle("desktop:info", () => ({
   boardRegistered: globalShortcut.isRegistered(settings.boardShortcut),
@@ -518,7 +529,9 @@ app
             { role: "paste" },
             { role: "selectAll" },
             { type: "separator" },
-            { label: "Start Dictation", selector: "startDictation:" },
+            ...(process.platform === "darwin"
+              ? [{ label: "Start Dictation", selector: "startDictation:" }]
+              : []),
           ],
         },
         {

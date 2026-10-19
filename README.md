@@ -1,153 +1,174 @@
-# Taskline
+<div align="center">
+  <img src="assets/taskline.png" width="88" alt="Taskline icon" />
+  <h1>Taskline</h1>
+  <p><strong>Capture anywhere. Queue the work. Review the result.</strong></p>
+  <p>A local-first Kanban and global capture companion for <a href="https://github.com/pingdotgg/t3code">T3 Code</a>.</p>
 
-A local macOS desktop Kanban and global capture window for T3 Code. Taskline stores its own tasks, screenshots, attempts and reports in SQLite. T3 remains responsible for agent execution and workspaces.
+[![Build](https://github.com/qisoft/taskline/actions/workflows/build.yml/badge.svg)](https://github.com/qisoft/taskline/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/qisoft/taskline)](https://github.com/qisoft/taskline/releases/latest)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Installed application
+[Download](https://github.com/qisoft/taskline/releases/latest) · [CLI](#cli) · [Development](#development) · [Report a bug](https://github.com/qisoft/taskline/issues/new)
 
-Enable **Always show Taskline in the Dock** in Settings to keep its Dock icon visible while the app is running, including after closing the board. Disable it for menu-bar-only operation. Dock visibility and global shortcuts are saved locally and restored on launch.
+</div>
 
-Open `/Applications/Taskline.app`. Closing the board hides it; the menu bar icon and global shortcuts remain active. Quit from the Taskline menu to stop the local scheduler. Agent turns already submitted to T3 continue there and are reconciled on the next launch.
+Taskline turns prompts and screenshots into a backlog that your coding agents can execute. Capture an idea without switching to T3 Code, choose a project and thread, and let the queue do the scheduling. Come back to the board for results, screenshots, tests and questions that need your attention.
 
-- **⌘ ⇧ 1** opens the prompt window above the current application.
-- **⌘ ⇧ 0** opens and focuses the Kanban board, including when its window is hidden or minimized. Change **Board shortcut** in Settings to use another combination.
-- **⌘ ⇧ 2** opens region selection on every connected monitor, including the Dock and menu bar. Drag on the desired monitor; the prompt window opens there with that image attached. Esc cancels selection on all monitors.
-- **⌘ Return** submits a task from the capture window.
-- **⌘ K** searches the board; **C** opens a new task when a text field is not focused.
-- Type, paste or use macOS Dictation / your existing voice typing application in the focused prompt field. Speech recognition is supplied by that tool or macOS; Taskline does not send microphone audio to a separate transcription service.
+Your tasks, attachments and execution history live in a local SQLite database. T3 Code owns agent execution and Git workspaces. Taskline connects through T3's authenticated API; it never edits T3's database.
 
-For screenshots, enable **Taskline** in **System Settings → Privacy & Security → Screen Recording**. The board and Settings provide an “Enable screen recording” button. macOS may request an application restart after changing this permission. No Accessibility permission is needed to register the capture shortcuts.
+![Taskline board with sample tasks](docs/images/board.png)
 
-The capture window offers the live T3 project, thread, epic and model. Use **New epic** beside the epic selector to create one without leaving the task form; your prompt and attachments are preserved and the new epic is selected automatically. A new thread gets a separate Git worktree. Select an existing thread to queue subsequent tasks in that conversation, or choose **Named thread · create or reuse** and enter a key to share a future conversation with other tasks. It is created when the first task starts; subsequent tasks use the same conversation and worktree. Named targets also appear in the thread selector before they exist in T3. Every card retains its original prompt and screenshot.
+_Demo board using sample data._
 
-In Settings, each project has an automatic-start switch, a parallel-task limit and a base branch for new worktrees. Pause the scheduler globally or pause individual To Do tasks when preparing a backlog. Taskline serializes cards targeting the same thread and also protects shared checkout paths from concurrent execution.
+## What you can do
 
-The lifecycle is **To Do → In Progress → Review → Done**. T3 completion moves a card to Review. Accept its result to mark it Done, request a revision, retry a failure or stop an active task. Live agent questions and approval requests can be answered in the task drawer. “Open in T3 Code” opens the corresponding conversation.
+- **Capture from any app.** A global shortcut opens a prompt; another lets you select a screen region on any connected monitor and attach it to a task. Use your OS dictation or existing voice typing tool.
+- **Plan before you run.** Pause a project, build its backlog in the app or CLI, then activate it. Configure a parallel-task limit for each project.
+- **Choose where work happens.** Target an existing T3 thread, a separate new worktree, or an explicitly shared future thread with `--thread-key`.
+- **Order the work.** Set priorities and dependencies. Blocked tasks wait until every prerequisite reaches Review or Done; ready tasks run by priority.
+- **Keep shared context in epics.** Group tasks with common requirements, acceptance criteria and decisions. Each attempt freezes the context it received.
+- **Review evidence.** Read the agent's result, test evidence, remaining work and questions. Open input/result images inside Taskline, answer approval/input requests, accept work or request a revision.
+- **Keep execution safe.** Tasks sharing a thread run sequentially. Separate threads use separate worktrees, with project limits and shared-workspace protection.
 
-Epics contain shared context and acceptance criteria. Each attempt freezes the context version it received. Editing the epic affects future attempts. Luna summarizes member task reports into achievements, questions, blockers, testing coverage and next actions. The summary does not override authoritative task statuses.
+The lifecycle is **To Do → In Progress → Review → Done**. Agent completion moves a card to Review; accepting its result moves it to Done. Summaries do not override authoritative task state.
 
-## CLI and planning a backlog
+## Install
 
-The installed `taskline` command talks to the same local API and SQLite database as the desktop app. It is available from any terminal, including an agent terminal inside T3 Code. Run `taskline --help` for the command reference, or add `--json` for machine-readable results.
+Download an artifact from [GitHub Releases](https://github.com/qisoft/taskline/releases/latest):
+
+| Platform             | Download                             | Install                          |
+| -------------------- | ------------------------------------ | -------------------------------- |
+| macOS, Apple Silicon | `Taskline-<version>-macos-arm64.dmg` | Drag Taskline into Applications. |
+| macOS, Intel         | `Taskline-<version>-macos-x64.dmg`   | Drag Taskline into Applications. |
+| Windows x64          | `Taskline-<version>-windows-x64.exe` | Run the per-user installer.      |
+
+ZIP archives are also provided for both platforms. Releases currently use local ad-hoc signing on macOS and are not notarized; Windows builds are not Authenticode-signed. Your OS may show an unidentified-publisher warning. Only install artifacts from this repository. Taskline does not yet update itself; download a newer release to upgrade.
+
+### Connect to T3 Code
+
+1. Install and start [T3 Code](https://github.com/pingdotgg/t3code).
+2. Open Taskline and choose **Connect local T3** in Settings. Taskline uses T3's installed CLI to issue a scoped session.
+3. Choose a project, set its execution policy and create a task.
+
+For another environment, enter its server address and scoped token in Settings. Use a Git repository with an initial commit for tasks that create worktrees. Tasks run with your configured T3 provider and credentials; Taskline does not supply an AI subscription.
+
+### Global shortcuts
+
+| Action                  | macOS      | Windows        |
+| ----------------------- | ---------- | -------------- |
+| Open the board          | `⌘ ⇧ 0`    | `Ctrl Shift 0` |
+| Capture a task          | `⌘ ⇧ 1`    | `Ctrl Shift 1` |
+| Capture a screen region | `⌘ ⇧ 2`    | `Ctrl Shift 2` |
+| Submit a task           | `⌘ Return` | `Ctrl Enter`   |
+
+Change the global shortcuts in Settings if another app uses them. Closing the board hides it; the menu-bar/system-tray icon keeps Taskline available. Quit the application to stop its scheduler. Turns already submitted to T3 continue and are reconciled when Taskline reopens.
+
+On macOS, enable **Taskline** in **System Settings → Privacy & Security → Screen Recording** for screenshots. Settings also offers **Always show Taskline in the Dock**. These controls are macOS-specific. Dictation is supplied by your OS or existing tool, not a separate Taskline transcription service.
+
+## CLI
+
+The desktop app must be running. The CLI requires **Node.js 24+** and talks to the same local API as the board.
+
+Download `taskline.mjs` and `install-cli.mjs` from the same release into one directory, then run:
 
 ```sh
-# Existing project: hold new work while planning.
+node install-cli.mjs
+```
+
+The installer prints the command directory to add to your `PATH`. It creates `taskline` on macOS or `taskline.cmd` on Windows and refuses to overwrite unrelated files. Keep the downloaded files in a permanent location. Both scripts are also bundled in the app's resources directory; custom installations can set `TASKLINE_CLI_RESOURCE` to the CLI file before running the installer.
+
+Without installing a command, use `node /path/to/taskline.mjs --help`. Add `--json` to commands for structured output.
+
+### Plan a backlog
+
+```sh
 taskline project pause website
-taskline epic add --project website --name "Large feature" --context-file plan.md
-taskline task add --project website --epic "Large feature" --thread-key feature-api --prompt "Implement the first part"
-taskline task add --project website --epic "Large feature" --thread-key feature-api --prompt-file task-two.md
+taskline epic add --project website --name "Checkout" --context-file plan.md
+taskline task add --project website --epic Checkout --thread-key checkout-api --priority high --prompt "Implement the API"
+taskline task add --project website --epic Checkout --thread-key checkout-api --prompt-file api-tests.md
+taskline task add --project website --epic Checkout --thread-key checkout-ui --prompt "Implement the UI"
 taskline task list --project website --json
-# Start taking queued tasks, respecting concurrency and thread ordering.
 taskline project activate website
 ```
 
-New projects are registered in T3 with an existing Git workspace and default to **Paused**:
+New CLI-created projects default to **Paused**:
 
 ```sh
-taskline project create --name "New project" --path /absolute/path/to/repo --paused
-taskline project set "New project" --limit 3 --base main
-taskline project activate "New project"
+taskline project create --name "My project" --path /absolute/path/to/repo --paused
+taskline project set "My project" --limit 3 --base main
+taskline project activate "My project"
 ```
 
-Use `--active` on creation only when immediate execution is intended. `--mkdir` allows T3 to create a missing directory; initialize its Git history before scheduling tasks in separate worktrees. Pausing a project prevents new cards from being taken and allows accepted/running work to finish. The project header and Settings show **Active / Paused** and can change the same persisted mode. A global scheduler pause still holds all projects until `taskline resume` or the global resume control is used.
+Pausing a project prevents new starts and lets existing turns finish. A global pause holds all projects. Without `--project`, the CLI resolves the project from the current Git workspace, including worktrees. Projects/epics accept unique names or IDs; tasks accept full IDs or unique `TL-ABCD` codes.
 
-Without `--project`, the CLI resolves the project from the current Git workspace, including worktrees. Projects and epics accept unique names or IDs. Tasks accept a full ID or a unique `TL-ABCD` code. `--thread new` (the default) starts a separate worktree; use `taskline thread list` and `--thread ID` for an existing thread. `--image file.png` attaches an image, and `--prompt-file -` reads stdin. `taskline model list` lists the current server's configured models.
+### Threads, priorities and blockers
 
-Use `--thread-key KEY` to bind tasks to a shared conversation that may not exist yet. Keys are case-sensitive, scoped to the project and independent of epics: one epic can contain tasks in several threads, and tasks from different epics can share a thread. Repeating the same key reserves the same durable thread ID. `taskline thread list --json` includes these targets with `status: "planned"` before launch; their reserved IDs can also be passed to `--thread ID`. The first admitted task creates the thread in a new worktree. Later tasks run sequentially there, while different keys can run concurrently up to the project limit. A lost launch response or restart retains the reservation. If a created thread is deleted or archived, its tasks wait rather than silently starting a replacement.
-
-```sh
-# Same epic, two independent execution queues.
-taskline task add --project website --epic "Large feature" --thread-key feature-api --prompt "Implement API"
-taskline task add --project website --epic "Large feature" --thread-key feature-api --prompt "Test API"
-taskline task add --project website --epic "Large feature" --thread-key feature-ui --prompt "Implement UI"
-# Retarget a queued task before it has ever started.
-taskline task update TL-ABCD --thread-key feature-api
-```
-
-Choose either `--thread` or `--thread-key`. `--thread new` explicitly gives just that task its own conversation. Epic membership supplies shared context without determining where tasks execute.
-
-Task commands include `show`, `update`, `pause`, `resume`, `cancel`, `accept`, `retry`, `revise`, `answer`, `approve`, `report`, and `delete`. Epic commands include `list`, `show`, `add`, `update`, `summarize`, `close`, `reopen`, and `delete`. Queued prompts can be edited; completed work uses a revision so its original evidence remains intact. `taskline status` reports the connection and global scheduler state. `taskline start` launches the installed app when it is not running.
-
-The executable is bundled at `/Applications/Taskline.app/Contents/Resources/taskline.mjs` and the installed command links to it, so app updates also update the CLI. To reinstall the link, run `node scripts/install-cli.mjs`; an optional directory argument chooses another bin directory. Node 24+ must be on PATH. `TASKLINE_URL` or `--url` selects another Taskline API address.
-
-## Priorities and blockers
-
-Set a task's priority and blockers in the board/capture composer or in its task details. Priorities are **Urgent**, **High**, **Normal** (the default), **Low** and **No priority**. The board and CLI list tasks by priority; manual order and creation time break ties. The scheduler starts the highest-priority ready tasks within project/thread/workspace limits. Changing priority does not interrupt running turns.
-
-A task waits until **all** its blockers reach **Review** or **Done**. A failed, cancelled, paused or missing blocker keeps it waiting. Blockers can come from any project; epic membership does not constrain dependencies. The card shows whether it is blocked, and task details link both to its blockers and to the tasks it blocks. Blocker links can be edited while the task is not running. Retrying a blocker holds dependents that are still queued; already-running work continues.
+`--thread new` gives a task its own conversation/worktree. Use `taskline thread list` and `--thread ID` for an existing thread. Tasks using the same **project-scoped** `--thread-key` share one durable future thread: the first admitted task creates it and later tasks reuse it sequentially. This binding belongs to tasks, independently of epic membership. Missing or archived materialized threads are not silently recreated.
 
 ```sh
 taskline task add --priority high --blocked-by TL-ABCD --prompt "Implement the dependent part"
-taskline task update TL-EF12 --priority urgent --blocked-by TL-ABCD --blocked-by TL-3456
-taskline task block TL-EF12 --by TL-7890
+taskline task update TL-EF12 --priority urgent
+taskline task block TL-EF12 --by TL-3456
 taskline task unblock TL-EF12 --by TL-ABCD
 taskline task update TL-EF12 --clear-blockers
 taskline task list --blocked --json
-taskline task list --priority high
 ```
 
-`--blocked-by` on `add`/`update` sets the complete blocker list. Repeat it (or use comma-separated IDs) for several blockers; `block`/`unblock` add or remove individual links. `task show ID --json` includes `priority`, `blockedBy` and the currently unresolved `blockingTaskIds`. Self-dependencies and cycles are rejected. Before deleting a task referenced as a blocker, remove those links from its dependents. Dependencies control execution order; they do not merge separate worktrees. Use the same `--thread-key` when dependent work should continue in one conversation and checkout.
+Priorities are `urgent`, `high`, `normal` (default), `low` and `none`. All blockers must reach **Review or Done**. Failed, cancelled, paused and missing blockers keep dependents waiting. Dependencies can span projects, but cannot form cycles. `--blocked-by` on `add`/`update` replaces the complete list; repeat it for several blockers. `block`/`unblock` edit individual links. Dependencies control admission, not branch merging; use a shared thread when work should continue in the same checkout.
 
-## Data and connection
+Use `--image file.png` for attachments and `--prompt-file -` for stdin. Task commands also include `show`, `pause`, `resume`, `cancel`, `accept`, `retry`, `revise`, `answer`, `approve`, `report` and `delete`. Run `taskline --help` for the full reference.
 
-Default data directory:
+## Results and local data
 
-```text
-~/Library/Application Support/Taskline/
-├── taskline.sqlite         # task, attempt, epic, settings and event records
-├── blobs/                  # input attachments and saved result screenshots
-├── reports/                # report schema and structured output artifacts
-└── connection.json         # T3 origin and scoped access credential, mode 0600
-```
+Agent results, questions and observed evidence remain available even if report generation fails. Optional task reports and epic summaries use a locally authenticated **Codex CLI**, with `gpt-6-luna` as the default summarization model. Configure another available model with `TASKLINE_REPORT_MODEL`; use `TASKLINE_CODEX_PATH` for a custom executable. Summaries do not consume a T3 execution slot.
 
-The SQLite database uses WAL. Back up the complete directory while Taskline is quit. Keep the connection file private; it is a local protected file, rather than a Keychain entry.
+Default data directories:
 
-Taskline serves its local API and bundled UI on `http://127.0.0.1:4318`. The desktop app starts that server in-process. “Connect local T3” obtains a scoped session through T3's installed CLI; another T3 environment can be connected with its address and scoped credential. Projects, top-level threads and models come from the live server. Taskline never reads or writes T3's SQLite database directly.
+- macOS: `~/Library/Application Support/Taskline/`
+- Windows: `%APPDATA%\Taskline\`
 
-Taskline uses the authenticated T3 V2 orchestration protocol for launching and observing turns, answering requests and uploading attachments. This integration is encapsulated in `server/t3.mjs`; the checked runtime is T3 Code Nightly `0.0.46-nightly.20261009.2861`. Future protocol changes may require adapting that module.
+The directory contains `taskline.sqlite`, screenshot blobs, report artifacts and `connection.json`. The connection file contains your scoped T3 token: do not share it or include it in bug reports. Back up the complete directory while Taskline is quit. Prompts are sent to the provider configured in T3; report inputs go to your local Codex CLI/provider. Local storage does not mean offline model execution.
 
-Reports use the locally installed Codex CLI (`/opt/homebrew/bin/codex`) with model `gpt-6-luna`, the user's existing authentication, a read-only sandbox and structured output. Reports and epic summaries require that model to be available. If summarization fails, the original T3 result and evidence remain visible and regeneration is available. Reporting work does not occupy an agent-execution slot.
+Taskline binds its API to `127.0.0.1:4318`. `TASKLINE_URL` or `--url` chooses another API address for the CLI. Desktop/server overrides include `TASKLINE_DATA_DIR`, `TASKLINE_PORT`, `TASKLINE_T3_HOME`, `TASKLINE_T3_PATH` and `TASKLINE_CODEX_PATH`. `TASKLINE_APP_PATH` overrides the executable launched by `taskline start`.
 
-Testing evidence is labeled **observed output**, **agent reported** or **no evidence**. “Observed output” requires a captured command item with output and an exit code consistent with the stated outcome. The drawer also retains original command output, file changes and attempt history. Click an input attachment or result screenshot to view it inside Taskline. The viewer supports fitting the image to the window, viewing it at 100% and closing with Esc. Screenshots referenced by the agent as local image paths or image links appear in **How it was tested**. Taskline copies them into local storage, retains the original references and keeps each attempt's gallery in its history. Unavailable image references are shown with their retrieval error; an image does not by itself establish that a test passed.
+## Development
 
-## Development and builds
-
-Use Node with `node:sqlite` support (Node 24+ recommended), npm and the configured T3/Codex environment.
+Requirements: Node.js 24+, npm, Git, and a native macOS or Windows machine for packaging that platform.
 
 ```sh
+git clone https://github.com/qisoft/taskline.git
+cd taskline
 npm ci
+npm test
 npm run build
 npm start
 ```
 
-For hot reload, run `npm run server` and `npm run dev`, then launch with `TASKLINE_UI_ORIGIN=http://127.0.0.1:4317 npm start`.
+`npm run server` plus `npm run dev` starts the API and Vite separately. Launch the desktop shell with `TASKLINE_UI_ORIGIN=http://127.0.0.1:4317 npm start` for hot reload (set the environment variable using your shell's syntax).
 
 ```sh
-npm run package
-ditto release/mac-arm64/Taskline.app /Applications/Taskline.app
+# macOS: signed ad-hoc app, DMG and ZIP
+npm run dist:mac -- --arm64
+npm run dist:mac -- --x64
+# Windows: NSIS installer and ZIP
+npm run dist:win -- --x64
 ```
 
-The package command seals the bundle with a local ad-hoc signature and verifies it. Its explicit designated requirement preserves the application identity across local builds. The app is built for this machine (Apple Silicon), with no notarization or public distribution configured.
+`npm run package` retains the local macOS unpacked-app workflow. CI builds native distributions for Apple Silicon, Intel macOS and Windows x64, runs offline unit/API tests and a packaged-app smoke test, and uploads artifacts on pushes and pull requests. These checks launch no real coding-agent tasks.
 
-Optional environment variables: `TASKLINE_PORT`, `TASKLINE_DATA_DIR`, `TASKLINE_UI_ORIGIN`. The launcher clears inherited `ELECTRON_RUN_AS_NODE`, which would otherwise prevent Electron from starting as a desktop application.
+### Release
 
-## Verification
+Update `version` in `package.json` and `package-lock.json`, commit, then push a matching tag:
 
 ```sh
-npm test
-TASKLINE_INSTALLED=1 npm run test:e2e
-npm run test:live
+npm version patch
+git push origin main --follow-tags
 ```
 
-The desktop suite operates the installed native Electron application, its prompt and screen-selection windows, local API and real T3 agents. The live scheduler suite uses the disposable **Taskline E2E** T3 project at `/Users/qisoft/dev/taskline-e2e` and GPT-6 Luna. These tests create real threads, worktrees and model usage; they do not touch user project code.
+A `v*` tag must match the package version. Once every platform build and packaged smoke test passes, the workflow publishes a GitHub Release with installers, archives, standalone CLI scripts and `SHA256SUMS.txt`. Tags with a prerelease suffix publish as prereleases. Publishing uses the workflow's `GITHUB_TOKEN`; no personal access token is required. App signing/notarization certificates are not configured in this repository.
 
-See `VERIFICATION.md` for the recorded results and boundaries. Screenshots and machine-readable execution timelines are in `artifacts/`; the Playwright report is in `playwright-report/`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for test boundaries and contribution guidance. T3's protocol can change; the integration is isolated in `server/t3.mjs`. Taskline is an independent project, not an official T3 Code product.
 
-## Implementation map
+## License
 
-- `electron/`: desktop lifecycle, global shortcuts, capture overlay and native bridge.
-- `src/`: React board, task reports, questions, epic context and settings.
-- `server/store.mjs`: SQLite and attachment storage.
-- `server/t3.mjs`: isolated T3 protocol adapter.
-- `server/scheduler.mjs`: durable admission, thread/workspace serialization and reconciliation.
-- `server/reports.mjs`: structured Luna interpretation of saved evidence.
-- `tests/` and `scripts/live-e2e.mjs`: focused behavior and real desktop/server verification.
+[MIT](LICENSE) © qisoft. Electron and bundled dependencies retain their respective licenses.

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { resolve, dirname, extname } from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
@@ -189,16 +191,36 @@ async function main() {
       emit({ running: true, url: base });
       return;
     } catch {}
-    if (process.platform !== "darwin")
-      throw Error("Start the Taskline server on this platform first");
+    const resourceDirectory = dirname(fileURLToPath(import.meta.url));
+    const candidates =
+      process.platform === "win32"
+        ? [
+            resolve(resourceDirectory, "..", "Taskline.exe"),
+            resolve(
+              process.env.LOCALAPPDATA || "",
+              "Programs",
+              "Taskline",
+              "Taskline.exe",
+            ),
+          ]
+        : [
+            resolve(resourceDirectory, "..", "MacOS", "Taskline"),
+            "/Applications/Taskline.app/Contents/MacOS/Taskline",
+          ];
+    const executable =
+      process.env.TASKLINE_APP_PATH || candidates.find(existsSync);
+    if (!executable)
+      throw Error(
+        "Open Taskline first, or set TASKLINE_APP_PATH to its executable",
+      );
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
     delete env.TASKLINE_E2E;
-    const child = spawn(
-      "/Applications/Taskline.app/Contents/MacOS/Taskline",
-      [],
-      { env, detached: true, stdio: "ignore" },
-    );
+    const child = spawn(executable, [], {
+      env,
+      detached: true,
+      stdio: "ignore",
+    });
     await new Promise((resolve, reject) => {
       child.once("spawn", resolve);
       child.once("error", reject);

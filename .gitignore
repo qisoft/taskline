@@ -7,3 +7,10 @@ test-results/
 .data/
 *.log
 .t3-token
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+connection.json

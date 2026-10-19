@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { spawn } from "./commands.mjs";
+import { toolCommand } from "./platform.mjs";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -150,11 +151,11 @@ export class ReportWorker {
         ? "Extract an evidence-based task report. The summary must describe the specific action or result, never just say that the task completed. Questions are unresolved choices for the user. Do not invent tests, facts, or source IDs. Use observed_output only when a supplied command/tool output explicitly proves the outcome. A final agent claim is agent_reported. Missing testing is unknown; explicitly skipped tests are not_run. Preserve the language of the input. Return only the schema output."
         : "Summarize this epic from approved context and member task reports. Explain achievements, unresolved decisions, blockers, testing gaps and next work. Do not change authoritative statuses or convert proposed decisions into accepted ones. Do not invent evidence or task IDs. Preserve the language of the context. Return only the schema output.";
     const config = this.store.settings("app");
-    const executable = config.codexPath ?? "/opt/homebrew/bin/codex";
+    const executable = config.codexPath ?? toolCommand("codex");
     const args = [
       "exec",
       "--model",
-      "gpt-6-luna",
+      config.reportModel ?? process.env.TASKLINE_REPORT_MODEL ?? "gpt-6-luna",
       "--sandbox",
       "read-only",
       "--ephemeral",

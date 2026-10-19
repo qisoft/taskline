@@ -11,25 +11,29 @@
     "start": "node scripts/launch.mjs",
     "build": "vite build",
     "package": "npm run build && electron-builder --mac dir && node scripts/sign-mac.mjs",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node scripts/test-unit.mjs",
     "test:e2e": "playwright test",
     "test:live": "node scripts/live-e2e.mjs",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "dist:mac": "npm run build && node scripts/dist.mjs mac",
+    "dist:win": "npm run build && node scripts/dist.mjs win",
+    "test:unit": "node scripts/test-unit.mjs"
   },
   "dependencies": {
-    "@fontsource-variable/inter": "^5.3.0",
-    "@vitejs/plugin-react": "latest",
-    "lucide-react": "latest",
+    "@fontsource-variable/inter": "5.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "cross-spawn": "7.0.6",
+    "lucide-react": "1.55.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "ws": "^8.18.3"
+    "ws": "8.22.0"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
     "electron": "44.7.0",
-    "electron-builder": "latest",
-    "prettier": "^3.9.10",
+    "electron-builder": "26.15.3",
+    "prettier": "3.9.10",
     "vite": "8.3.4"
   },
   "build": {
@@ -42,28 +46,66 @@
       "dist/**/*",
       "server/**/*",
       "electron/**/*",
-      "package.json"
+      "package.json",
+      "LICENSE"
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "target": "dir",
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "hardenedRuntime": false,
       "identity": null,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Dictate a task prompt.",
         "NSSpeechRecognitionUsageDescription": "Turn dictated tasks into text."
       },
-      "icon": "assets/taskline.icns"
+      "icon": "assets/taskline.icns",
+      "artifactName": "Taskline-${version}-macos-${arch}.${ext}"
     },
     "extraResources": [
       {
         "from": "cli/taskline.mjs",
         "to": "taskline.mjs"
+      },
+      {
+        "from": "scripts/install-cli.mjs",
+        "to": "install-cli.mjs"
       }
-    ]
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "icon": "assets/taskline.png",
+      "artifactName": "Taskline-${version}-windows-${arch}.${ext}",
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true
+    },
+    "publish": null
   },
   "author": "qisoft",
   "bin": {
     "taskline": "cli/taskline.mjs"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/qisoft/taskline",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/qisoft/taskline.git"
+  },
+  "bugs": {
+    "url": "https://github.com/qisoft/taskline/issues"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

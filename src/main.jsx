@@ -1601,16 +1601,18 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
             }
           />
         </label>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={settings.showInDock !== false}
-            onChange={(e) =>
-              setSettings({ ...settings, showInDock: e.target.checked })
-            }
-          />
-          Always show Taskline in the Dock
-        </label>
+        {desktop?.platform === "darwin" && (
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={settings.showInDock !== false}
+              onChange={(e) =>
+                setSettings({ ...settings, showInDock: e.target.checked })
+              }
+            />
+            Always show Taskline in the Dock
+          </label>
+        )}
         <label className="checkbox">
           <input
             type="checkbox"
