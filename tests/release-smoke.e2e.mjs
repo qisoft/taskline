@@ -32,6 +32,19 @@ test("packaged app boots its own isolated SQLite backend and ships a working CLI
       env,
     });
     const page = await app.firstWindow();
+    const origin = "http://127.0.0.1:" + port;
+    const index = await (await page.request.get(origin)).text();
+    const assets = [
+      ...index.matchAll(/(?:src|href)="([^\"]+\.(?:js|css))"/g),
+    ].map((match) => match[1]);
+    expect(assets.length).toBeGreaterThanOrEqual(2);
+    for (const asset of assets) {
+      const response = await page.request.get(new URL(asset, origin).href);
+      expect(response.ok()).toBe(true);
+      expect(response.headers()["content-type"]).toContain(
+        asset.endsWith(".js") ? "javascript" : "css",
+      );
+    }
     await expect(page.locator(".kanban")).toBeVisible();
     expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true);
     const info = await page.evaluate(() => window.taskline.desktopInfo());

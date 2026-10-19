@@ -6,6 +6,7 @@ import { join, dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dataDirectory, t3Home, toolCommand } from "./platform.mjs";
 import { runCommand } from "./commands.mjs";
+import { assetPath } from "./static-files.mjs";
 import { randomUUID } from "node:crypto";
 import { Store } from "./store.mjs";
 import { T3Client } from "./t3.mjs";
@@ -98,7 +99,6 @@ export async function startServer({
     const runtime = JSON.parse(readFileSync(runtimePath, "utf8"));
     const result = await runCommand(
       toolCommand("t3"),
-      cli,
       [
         "auth",
         "session",
@@ -578,11 +578,8 @@ export async function startServer({
       if (path.startsWith("/api/"))
         return respond(res, { error: "Not found" }, 404);
       const dist = join(root, "dist");
-      const file = path === "/" ? join(dist, "index.html") : join(dist, path);
-      const safe =
-        resolve(file).startsWith(resolve(dist) + "/") ||
-        resolve(file) === join(dist, "index.html");
-      const final = safe && existsSync(file) ? file : join(dist, "index.html");
+      const file = assetPath(dist, path);
+      const final = file && existsSync(file) ? file : join(dist, "index.html");
       if (!existsSync(final)) {
         res.writeHead(503, { "Content-Type": "text/plain" });
         return res.end("Run npm run build to prepare the interface.");
@@ -601,10 +598,7 @@ export async function startServer({
   });
   if (!t3.config.token && existsSync(join(root, ".t3-token"))) {
     const runtime = JSON.parse(
-      readFileSync(
-        join(homedir(), ".t3", "userdata", "server-runtime.json"),
-        "utf8",
-      ),
+      readFileSync(join(t3Home(), "userdata", "server-runtime.json"), "utf8"),
     );
     t3.config = {
       origin: runtime.origin,
