@@ -232,13 +232,24 @@ test("capture selection is available on every connected monitor and crops its ac
 });
 
 test("Escape closes all monitor overlays and repeated capture does not duplicate them", async () => {
+  const nextRegion = app.waitForEvent("window");
   await Promise.all([
     board.evaluate(() => window.taskline.captureRegion()),
     board.evaluate(() => window.taskline.captureRegion()),
   ]);
   const state = await geometry();
   expect(state.overlays).toHaveLength(state.displays.length);
-  const region = app.windows().find((w) => w.url().endsWith("/region.html"));
+  // Old pages can remain in Playwright's window list while their native
+  // windows are closing. Send input to a window from this capture only.
+  const region = await nextRegion;
+  await region.waitForLoadState("load");
+  await (
+    await app.browserWindow(region)
+  ).evaluate((window) => {
+    window.show();
+    window.focus();
+    window.webContents.focus();
+  });
   await region.keyboard.press("Escape").catch((error) => {
     // Escape can destroy the native window before Playwright sends keyup.
     if (!region.isClosed()) throw error;
