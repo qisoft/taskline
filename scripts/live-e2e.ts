@@ -1,7 +1,12 @@
+import type { AppState, Epic, Task, TaskDetail } from "../shared/types.js";
 import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync } from "node:fs";
 const origin = process.env.TASKLINE_TEST_ORIGIN || "http://127.0.0.1:4318";
-const call = async (path, body, method = body ? "POST" : "GET") => {
+const call = async <T = unknown>(
+  path: string,
+  body?: unknown,
+  method = body ? "POST" : "GET",
+) => {
   const response = await fetch(origin + "/api" + path, {
     method,
     headers: body ? { "content-type": "application/json" } : {},
@@ -9,9 +14,9 @@ const call = async (path, body, method = body ? "POST" : "GET") => {
   });
   const value = await response.json();
   if (!response.ok) throw Error(value.error);
-  return value;
+  return value as T;
 };
-const initial = await call("/state");
+const initial = await call<AppState>("/state");
 const project = initial.projects.find((p) => p.title === "Taskline E2E");
 assert(project, "Disposable project must exist");
 const seed = initial.tasks.find(
@@ -23,15 +28,15 @@ await call(
   { concurrencyLimit: 2, autoStart: true },
   "PATCH",
 );
-const group = await call("/groups", {
+const group = await call<Epic>("/groups", {
   name: "E2E Scheduler " + Date.now(),
   context:
     "These are disposable execution tests. Work only in the selected project. Keep files in the current working directory. Do not commit, deploy or create PRs.",
   acceptanceCriteria:
     "Sequential tasks retain context, independent threads run in separate workspaces, and results are attributed to cards.",
 });
-const task = (title, prompt, threadId = null) =>
-  call("/tasks", {
+const task = (title: string, prompt: string, threadId: string | null = null) =>
+  call<Task>("/tasks", {
     title,
     prompt,
     projectId: project.id,
@@ -66,12 +71,12 @@ const controller = new AbortController();
 const response = await fetch(origin + "/api/events", {
   signal: controller.signal,
 });
-const reader = response.body.getReader();
+const reader = response.body!.getReader();
 try {
   while (Date.now() < deadline) {
-    const state = await call("/state");
+    const state = await call<AppState>("/state");
     const tasks = state.tasks.filter((t) => ids.includes(t.id));
-    const active = state.tasks.filter(
+    const active: Task[] = state.tasks.filter(
       (t) => t.projectId === project.id && t.status === "doing",
     );
     assert(active.length <= 2, "Project cap exceeded");
@@ -118,24 +123,26 @@ try {
       new Promise((resolve) => setTimeout(resolve, 1000)),
     ]);
   }
-  const final = await call("/state");
+  const final = await call<AppState>("/state");
   const tasks = final.tasks.filter((t) => ids.includes(t.id));
   assert(
     tasks.every((t) => t.status === "review" && t.reportState === "ready"),
     "Tasks did not finish with reports",
   );
-  const details = await Promise.all(ids.map((id) => call("/tasks/" + id)));
-  const attempts = details.map((d) => d.attempts.at(-1));
+  const details = await Promise.all(
+    ids.map((id) => call<TaskDetail>("/tasks/" + id)),
+  );
+  const attempts = details.map((d) => d.attempts.at(-1)!);
   assert.equal(attempts[0].threadId, attempts[1].threadId);
   assert.equal(attempts[0].workspace, attempts[1].workspace);
   assert(
-    Date.parse(attempts[1].createdAt) >= Date.parse(attempts[0].completedAt),
+    Date.parse(attempts[1].createdAt) >= Date.parse(attempts[0].completedAt!),
     "Same-thread tasks overlapped",
   );
   assert.notEqual(attempts[2].workspace, attempts[3].workspace);
   assert(sawParallel, "Did not observe independent concurrent execution");
   assert(
-    attempts[1].evidence.some((i) =>
+    attempts[1].evidence!.some((i) =>
       String(i.text).includes(
         "Verified sequential-a.txt exists and contains TASKLINE-A",
       ),
@@ -144,20 +151,20 @@ try {
   );
   assert.match(
     [
-      tasks.find((t) => t.id === B.id).report.summary,
-      ...tasks.find((t) => t.id === B.id).report.changes,
+      tasks.find((t) => t.id === B.id)!.report!.summary,
+      ...tasks.find((t) => t.id === B.id)!.report!.changes,
     ].join(" "),
     /TASKLINE-A|sequential-a|TASKLINE-B|sequential-b/i,
   );
   assert(
     tasks.every((t) =>
-      t.report.validation.some((v) => v.basis === "observed_output"),
+      t.report!.validation.some((v) => v.basis === "observed_output"),
     ),
     "A task report lacks actual test evidence",
   );
   const priorResult = JSON.stringify(details[0].attempts[0].result);
   await call("/tasks/" + A.id, { status: "done" }, "PATCH");
-  const priorAfter = await call("/tasks/" + A.id);
+  const priorAfter = await call<TaskDetail>("/tasks/" + A.id);
   assert.equal(
     JSON.stringify(priorAfter.attempts[0].result),
     priorResult,

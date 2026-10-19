@@ -4,9 +4,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
-import { Store } from "../server/store.mjs";
-import { Scheduler } from "../server/scheduler.mjs";
-import { taskThreadTarget } from "../server/thread-targets.mjs";
+import { Store } from "../server/store.js";
+import { Scheduler } from "../server/scheduler.js";
+import { taskThreadTarget } from "../server/thread-targets.js";
 class FakeT3 extends EventEmitter {
   constructor() {
     super();

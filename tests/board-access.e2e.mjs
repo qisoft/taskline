@@ -3,7 +3,7 @@ import { createServer } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Store } from "../server/store.mjs";
+import { Store } from "../server/store.js";
 
 // This fixture launches no T3 connection or provider. It verifies native OS
 // shortcut registration and invokes the exact registered callback, not a keypress.

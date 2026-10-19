@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "build",
+    "rootDir": ".",
+    "sourceMap": true,
+    "noEmitOnError": true
+  },
+  "include": [
+    "shared",
+    "server",
+    "electron",
+    "cli",
+    "src/env.d.ts",
+    "scripts/install-cli.ts"
+  ]
+}

@@ -1,3 +1,4 @@
+import type { Task, Priority } from "../shared/types.js";
 export const priorities = [
   { value: "urgent", label: "Urgent" },
   { value: "high", label: "High" },
@@ -5,8 +6,8 @@ export const priorities = [
   { value: "low", label: "Low" },
   { value: "none", label: "No priority" },
 ];
-export function compareTaskPriority(a, b) {
-  const order = (task) =>
+export function compareTaskPriority(a: Task, b: Task) {
+  const order = (task: Task) =>
     priorities.findIndex((p) => p.value === (task.priority ?? "normal"));
   return (
     order(a) - order(b) ||
@@ -15,12 +16,15 @@ export function compareTaskPriority(a, b) {
     (a.createdAt ?? "").localeCompare(b.createdAt ?? "")
   );
 }
-export function pendingBlockers(task, tasksById) {
+export function pendingBlockers(
+  task: Pick<Task, "blockedBy">,
+  tasksById: { get(id: string): Pick<Task, "status"> | null | undefined },
+) {
   return (task.blockedBy ?? []).filter(
-    (id) => !["review", "done"].includes(tasksById.get(id)?.status),
+    (id) => !["review", "done"].includes(tasksById.get(id)?.status ?? ""),
   );
 }
-export function taskPlanningView(task, tasksById) {
+export function taskPlanningView(task: Task, tasksById: Map<string, Task>) {
   return {
     ...task,
     priority: task.priority ?? "normal",
@@ -28,12 +32,16 @@ export function taskPlanningView(task, tasksById) {
     blockingTaskIds: pendingBlockers(task, tasksById),
   };
 }
-export function validateTaskPlanning(task, input, tasks) {
-  const patch = {};
+export function validateTaskPlanning(
+  task: Pick<Task, "id" | "status">,
+  input: { priority?: unknown; blockedBy?: unknown },
+  tasks: Task[],
+) {
+  const patch: { priority?: Priority; blockedBy?: string[] } = {};
   if ("priority" in input) {
     if (!priorities.some((p) => p.value === input.priority))
       throw Error("Choose priority: urgent, high, normal, low or none");
-    patch.priority = input.priority;
+    patch.priority = input.priority as Priority;
   }
   if ("blockedBy" in input) {
     if (task.status === "doing")
@@ -51,9 +59,9 @@ export function validateTaskPlanning(task, input, tasks) {
       if (!byId.has(id)) throw Error("Blocking task not found: " + id);
     }
     const pending = [...patch.blockedBy],
-      seen = new Set();
+      seen = new Set<string>();
     while (pending.length) {
-      const id = pending.pop();
+      const id = pending.pop()!;
       if (id === task.id)
         throw Error("Blockers would create a dependency cycle");
       if (seen.has(id)) continue;

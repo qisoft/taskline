@@ -1,3 +1,12 @@
+import type { Store } from "./store.js";
+import type {
+  Evidence,
+  ImageReference,
+  ValidationImage,
+  ConnectionConfig,
+  Attempt,
+} from "../shared/types.js";
+import { asError } from "../shared/errors.js";
 import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,7 +14,7 @@ import { createHash } from "node:crypto";
 
 const limit = 20 * 1024 * 1024;
 const imageExtension = /\.(?:png|jpe?g|webp|gif|avif|bmp)(?:[?#].*)?$/i;
-export function imageMime(bytes) {
+export function imageMime(bytes: Buffer) {
   if (
     bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
   )
@@ -26,8 +35,8 @@ export function imageMime(bytes) {
   if (bytes.toString("ascii", 0, 2) === "BM") return "image/bmp";
   return null;
 }
-export function imageReferences(evidence) {
-  const refs = new Map();
+export function imageReferences(evidence: Evidence[]) {
+  const refs = new Map<string, ImageReference>();
   for (const item of evidence) {
     if (
       ![
@@ -39,19 +48,19 @@ export function imageReferences(evidence) {
       ].includes(item.type)
     )
       continue;
-    const add = (value, explicit = false) => {
+    const add = (value: string, explicit = false) => {
       const ref = value
         .trim()
         .replace(/^<|>$/g, "")
         .replace(/[.,;]$/, "");
       if (!ref || (!explicit && !imageExtension.test(ref))) return;
       if (!refs.has(ref)) refs.set(ref, { reference: ref, evidenceIds: [] });
-      const ids = refs.get(ref).evidenceIds;
+      const ids = refs.get(ref)!.evidenceIds;
       if (!ids.includes(item.id)) ids.push(item.id);
     };
     const text = typeof item.text === "string" ? item.text : "";
-    const spans = [];
-    const mark = (match) =>
+    const spans: [number, number][] = [];
+    const mark = (match: RegExpExecArray) =>
       spans.push([match.index, match.index + match[0].length]);
     for (const match of text.matchAll(
       /(!?)\[([^\]]*)\]\(\s*(<[^>]+>|[^\n]+?)\s*\)/g,
@@ -80,13 +89,13 @@ export function imageReferences(evidence) {
   }
   return [...refs.values()].slice(0, 32);
 }
-async function download(reference, config) {
+async function download(reference: string, config: ConnectionConfig) {
   let url = new URL(reference, config.origin);
   const signal = AbortSignal.timeout(10000);
   for (let redirects = 0; redirects < 5; redirects++) {
     if (!["http:", "https:"].includes(url.protocol))
       throw Error("Unsupported image URL");
-    const headers = {};
+    const headers: Record<string, string> = {};
     if (
       config.origin &&
       url.origin === new URL(config.origin).origin &&
@@ -98,7 +107,7 @@ async function download(reference, config) {
     const response = await fetch(url, { headers, redirect: "manual", signal });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       await response.body?.cancel();
-      url = new URL(response.headers.get("location"), url);
+      url = new URL(response.headers.get("location") ?? "", url);
       continue;
     }
     if (!response.ok) {
@@ -111,7 +120,7 @@ async function download(reference, config) {
     }
     const chunks = [];
     let size = 0;
-    for await (const chunk of response.body) {
+    for await (const chunk of response.body!) {
       size += chunk.length;
       if (size > limit) throw Error("Image exceeds 20 MB");
       chunks.push(chunk);
@@ -120,9 +129,13 @@ async function download(reference, config) {
   }
   throw Error("Too many image redirects");
 }
-export async function collectValidationImages(store, attempt, config = {}) {
-  const images = new Map(),
-    issues = [];
+export async function collectValidationImages(
+  store: Store,
+  attempt: Pick<Attempt, "evidence" | "workspace" | "attachments">,
+  config: ConnectionConfig = {},
+) {
+  const images = new Map<string, ValidationImage>(),
+    issues: (ImageReference & { message: string })[] = [];
   const refs = imageReferences(attempt.evidence ?? []);
   for (let start = 0; start < refs.length; start += 4) {
     const results = await Promise.all(
@@ -139,8 +152,9 @@ export async function collectValidationImages(store, attempt, config = {}) {
           if (remote) bytes = await download(ref, config);
           else {
             try {
-              bytes = await readFile(path);
-            } catch (error) {
+              bytes = await readFile(path!);
+            } catch (caught) {
+              const error = asError(caught);
               if (
                 error.code !== "ENOENT" ||
                 !/%[0-9a-f]{2}/i.test(ref) ||
@@ -148,7 +162,7 @@ export async function collectValidationImages(store, attempt, config = {}) {
               )
                 throw error;
               path = resolve(attempt.workspace || ".", decodeURIComponent(ref));
-              bytes = await readFile(path);
+              bytes = await readFile(path!);
             }
           }
           const mimeType = imageMime(bytes);
@@ -162,11 +176,12 @@ export async function collectValidationImages(store, attempt, config = {}) {
             mimeType,
             sha256,
             name: basename(
-              remote ? new URL(ref, config.origin).pathname : path,
+              remote ? new URL(ref, config.origin).pathname : path!,
             ),
             source: { ...source, kind: remote ? "url" : "file" },
           };
-        } catch (error) {
+        } catch (caught) {
+          const error = asError(caught);
           if (
             error.code === "ENOENT" &&
             source.reference === basename(source.reference) &&
@@ -178,11 +193,12 @@ export async function collectValidationImages(store, attempt, config = {}) {
       }),
     );
     for (const result of results) {
-      if (result.skipped) continue;
-      if (result.issue) {
+      if ("skipped" in result) continue;
+      if ("issue" in result && result.issue) {
         issues.push(result.issue);
         continue;
       }
+      if (!("sha256" in result) || !result.sha256) continue;
       const existing = images.get(result.sha256);
       if (existing) existing.sources.push(result.source);
       else

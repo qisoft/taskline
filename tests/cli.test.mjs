@@ -4,8 +4,8 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { startServer } from "../server/index.mjs";
-const cli = resolve("cli/taskline.mjs");
+import { startServer } from "../server/index.js";
+const cli = resolve("build/standalone/taskline.mjs");
 function run(args, origin, input = "", cwd = process.cwd()) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [cli, ...args, "--json"], {

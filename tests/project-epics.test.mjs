@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Store } from "../server/store.mjs";
-import { startServer } from "../server/index.mjs";
+import { Store } from "../server/store.js";
+import { startServer } from "../server/index.js";
 
 test("legacy epics inherit only an unambiguous project", () => {
   const dir = mkdtempSync(join(tmpdir(), "taskline-epics-"));

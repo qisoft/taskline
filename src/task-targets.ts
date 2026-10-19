@@ -1,11 +1,14 @@
-const timestamp = (value) => Date.parse(value) || 0;
-const latest = (...values) => Math.max(0, ...values.map(timestamp));
-export const selectableThread = (thread) =>
+import type { AppState, Thread } from "../shared/types.js";
+const timestamp = (value: string | null | undefined) =>
+  Date.parse(value ?? "") || 0;
+const latest = (...values: (string | undefined)[]) =>
+  Math.max(0, ...values.map(timestamp));
+export const selectableThread = (thread: Thread) =>
   !thread.archivedAt &&
   !thread.deletedAt &&
   (thread.lineage?.relationshipToParent ?? thread.relationshipToParent) !==
     "subagent";
-export function threadUsedAt(state, thread) {
+export function threadUsedAt(state: AppState, thread: Thread) {
   const history = state.settings.targetHistory?.[thread.projectId];
   const activity = latest(
     thread.lastVisitedAt,
@@ -22,7 +25,7 @@ export function threadUsedAt(state, thread) {
       .map((t) => timestamp(t.createdAt)),
   );
 }
-export function recentThreads(state, projectId) {
+export function recentThreads(state: AppState, projectId: string) {
   const threads = state.threads.filter(
     (t) => t.projectId === projectId && selectableThread(t),
   );
@@ -43,14 +46,14 @@ export function recentThreads(state, projectId) {
     .sort((a, b) => b.usedAt - a.usedAt)
     .map(({ thread }) => thread);
 }
-export function recentProjects(state) {
+export function recentProjects(state: AppState) {
   const usage = new Map(
     state.projects.map((p) => [
       p.id,
       timestamp(state.settings.targetHistory?.[p.id]?.lastUsedAt),
     ]),
   );
-  const track = (projectId, usedAt) =>
+  const track = (projectId: string, usedAt: number) =>
     usage.set(projectId, Math.max(usage.get(projectId) || 0, usedAt));
   for (const task of state.tasks)
     track(task.projectId, timestamp(task.createdAt));
@@ -82,7 +85,11 @@ export function recentProjects(state) {
       Number(b.id === legacy) - Number(a.id === legacy),
   );
 }
-export function projectTargets(state, projectId, initialGroupId) {
+export function projectTargets(
+  state: AppState,
+  projectId: string,
+  initialGroupId?: string,
+) {
   const history = state.settings.targetHistory?.[projectId];
   const threads = recentThreads(state, projectId);
   const tasks = state.tasks
@@ -99,7 +106,7 @@ export function projectTargets(state, projectId, initialGroupId) {
         threadUsedAt(state, t) === threadUsedAt(state, threads[0]),
     )
   )
-    threadId = history.lastThreadId;
+    threadId = history.lastThreadId || "";
   if (
     !history &&
     legacy &&
@@ -109,7 +116,7 @@ export function projectTargets(state, projectId, initialGroupId) {
         threadUsedAt(state, t) === threadUsedAt(state, threads[0]),
     )
   )
-    threadId = state.settings.lastThreadId;
+    threadId = state.settings.lastThreadId || "";
   if (
     history?.lastThreadId === null &&
     timestamp(history.threadSelectedAt) >
@@ -133,8 +140,9 @@ export function projectTargets(state, projectId, initialGroupId) {
     ) || "";
   return { threadId, groupId };
 }
-export function defaultProject(state, initialProjectId) {
-  return state.projects.some((p) => p.id === initialProjectId)
+export function defaultProject(state: AppState, initialProjectId?: string) {
+  return initialProjectId &&
+    state.projects.some((p) => p.id === initialProjectId)
     ? initialProjectId
     : recentProjects(state)[0]?.id || "";
 }

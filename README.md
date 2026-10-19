@@ -139,10 +139,13 @@ Requirements: Node.js 24+, npm, Git, and a native macOS or Windows machine for p
 git clone https://github.com/qisoft/taskline.git
 cd taskline
 npm ci
+npm run typecheck
 npm test
 npm run build
 npm start
 ```
+
+`npm run build` compiles the TypeScript server, Electron shell and standalone CLI into `build/`, and Vite builds the React interface into `dist/`. `npm run typecheck` checks all application/tooling sources with strict TypeScript settings. Installed packages run compiled JavaScript and need no TypeScript runtime.
 
 `npm run server` plus `npm run dev` starts the API and Vite separately. Launch the desktop shell with `TASKLINE_UI_ORIGIN=http://127.0.0.1:4317 npm start` for hot reload (set the environment variable using your shell's syntax).
 
@@ -167,7 +170,7 @@ git push origin main --follow-tags
 
 A `v*` tag must match the package version. Once every platform build and packaged smoke test passes, the workflow publishes a GitHub Release with installers, archives, standalone CLI scripts and `SHA256SUMS.txt`. Tags with a prerelease suffix publish as prereleases. Publishing uses the workflow's `GITHUB_TOKEN`; no personal access token is required. App signing/notarization certificates are not configured in this repository.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for test boundaries and contribution guidance. T3's protocol can change; the integration is isolated in `server/t3.mjs`. Taskline is an independent project, not an official T3 Code product.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for test boundaries and contribution guidance. T3's protocol can change; the integration is isolated in `server/t3.ts`. Taskline is an independent project, not an official T3 Code product.
 
 ## License
 

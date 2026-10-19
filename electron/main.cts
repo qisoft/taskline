@@ -1,4 +1,16 @@
-const {
+import type {
+  Display,
+  NativeImage,
+  MenuItemConstructorOptions,
+} from "electron";
+import type {
+  AppState,
+  AppSettings,
+  ImageAttachment,
+  Rectangle,
+} from "../shared/types.js";
+import { asError } from "../shared/errors.js";
+import {
   app,
   BrowserWindow,
   globalShortcut,
@@ -12,26 +24,32 @@ const {
   clipboard,
   desktopCapturer,
   systemPreferences,
-} = require("electron");
-const path = require("node:path");
-const fs = require("node:fs");
-const { execFile, spawn } = require("node:child_process");
-const { pathToFileURL } = require("node:url");
+} from "electron";
+import path from "node:path";
+import fs from "node:fs";
+import { execFile, spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 app.setName("Taskline");
-let board,
-  capture,
-  tray,
-  runtime,
-  quitting = false,
-  pendingCapture = null,
-  apiOrigin = "http://127.0.0.1:" + (process.env.TASKLINE_PORT || 4318),
-  uiOrigin = process.env.TASKLINE_UI_ORIGIN || apiOrigin,
-  settings,
-  previousApp = null,
-  regionCapturePromise = null;
-const regionWindows = new Map();
-const get = async (p) => (await fetch(apiOrigin + "/api" + p)).json();
-async function post(p, data) {
+let board: BrowserWindow | undefined;
+let capture: BrowserWindow | undefined;
+let tray: Tray | undefined;
+let runtime:
+  | Awaited<ReturnType<typeof import("../server/index.js").startServer>>
+  | undefined;
+let quitting = false;
+let pendingCapture: ImageAttachment | null = null;
+const apiOrigin = "http://127.0.0.1:" + (process.env.TASKLINE_PORT || 4318);
+const uiOrigin = process.env.TASKLINE_UI_ORIGIN || apiOrigin;
+let settings: AppSettings;
+let previousApp: string | null = null;
+let regionCapturePromise: Promise<void> | null = null;
+const regionWindows = new Map<
+  number,
+  { window: BrowserWindow; display: Display; source: NativeImage }
+>();
+const get = async (p: string): Promise<AppState> =>
+  (await fetch(apiOrigin + "/api" + p)).json();
+async function post<T = unknown>(p: string, data: unknown): Promise<T> {
   const r = await fetch(apiOrigin + "/api" + p, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -42,8 +60,8 @@ async function post(p, data) {
   return result;
 }
 const preload = path.join(__dirname, "preload.cjs");
-let lastDockShownAt = null;
-async function setDockVisibility(visible) {
+let lastDockShownAt: number | null = null;
+async function setDockVisibility(visible: boolean) {
   if (!app.dock || app.dock.isVisible() === visible) return;
   if (visible) {
     await app.dock.show();
@@ -92,7 +110,7 @@ function createBoard() {
   board.on("close", (e) => {
     if (!quitting) {
       e.preventDefault();
-      board.hide();
+      board?.hide();
     }
   });
   board.webContents.setWindowOpenHandler(({ url }) => {
@@ -104,7 +122,7 @@ function createBoard() {
 async function rememberFocus() {
   previousApp = null;
   if (process.platform === "darwin")
-    await new Promise((resolve) =>
+    await new Promise<void>((resolve) =>
       execFile(
         "/usr/bin/osascript",
         [
@@ -128,9 +146,9 @@ function restoreFocus() {
     execFile("/usr/bin/open", ["-b", previousApp], () => {});
 }
 async function showCapture(
-  attachment = null,
+  attachment: ImageAttachment | null = null,
   keepFocus = false,
-  targetDisplay = null,
+  targetDisplay: Display | null = null,
 ) {
   if (capture && !capture.isDestroyed()) {
     capture.show();
@@ -168,7 +186,7 @@ async function showCapture(
   await capture.loadURL(uiOrigin + "/?capture=1");
   capture.focus();
   capture.on("closed", () => {
-    capture = null;
+    capture = undefined;
     pendingCapture = null;
     restoreFocus();
   });
@@ -188,7 +206,7 @@ async function captureRegion() {
     const entry = [...regionWindows.values()].find(
       (e) => e.display.id === display.id,
     );
-    (entry ?? regionWindows.values().next().value).window.focus();
+    (entry ?? regionWindows.values().next().value)?.window.focus();
     return;
   }
   regionCapturePromise = createRegionWindows();
@@ -252,6 +270,13 @@ async function createRegionWindows() {
           sandbox: true,
         },
       });
+      window.webContents.on("before-input-event", (event, input) => {
+        if (input.type === "keyDown" && input.key === "Escape") {
+          event.preventDefault();
+          closeRegionWindows();
+          restoreFocus();
+        }
+      });
       const id = window.webContents.id;
       regionWindows.set(id, { window, display, source });
       window.on("closed", () => regionWindows.delete(id));
@@ -269,7 +294,8 @@ async function createRegionWindows() {
       (e) => e.display.id === nearest.id,
     );
     (focused ?? regionWindows.values().next().value)?.window.focus();
-  } catch (e) {
+  } catch (caught) {
+    const e = asError(caught);
     closeRegionWindows();
     new Notification({
       title: "Screen capture unavailable",
@@ -278,7 +304,7 @@ async function createRegionWindows() {
     throw e;
   }
 }
-function registerShortcuts(next) {
+function registerShortcuts(next: AppSettings) {
   globalShortcut.unregisterAll();
   const failures = [];
   for (const [label, accelerator, callback] of [
@@ -289,7 +315,7 @@ function registerShortcuts(next) {
       next.screenshotShortcut,
       () => captureRegion().catch(console.error),
     ],
-  ]) {
+  ] as const) {
     try {
       if (!accelerator || !globalShortcut.register(accelerator, callback))
         failures.push(label + " shortcut is already used or empty");
@@ -299,11 +325,11 @@ function registerShortcuts(next) {
   }
   return failures;
 }
-async function configure(next) {
+async function configure(next: AppSettings) {
   next = {
-    boardShortcut: "CommandOrControl+Shift+0",
-    showInDock: true,
     ...next,
+    boardShortcut: next.boardShortcut ?? "CommandOrControl+Shift+0",
+    showInDock: next.showInDock ?? true,
   };
   const failures = registerShortcuts(next);
   if (failures.length) {
@@ -313,12 +339,12 @@ async function configure(next) {
   await setDockVisibility(next.showInDock !== false);
   app.setLoginItemSettings({
     openAtLogin: next.launchAtLogin === true,
-    openAsHidden: true,
   });
   settings = next;
   const boardMenuItem =
     Menu.getApplicationMenu()?.getMenuItemById("open-board");
-  if (boardMenuItem) boardMenuItem.accelerator = next.boardShortcut;
+  // MenuItem accelerators are immutable at runtime; replace the menu after edits.
+  if (boardMenuItem) updateApplicationMenu();
   return { ok: true };
 }
 function trayImage() {
@@ -334,7 +360,7 @@ function trayImage() {
       if (painted) raw[y * (1 + width * 4) + 1 + x * 4 + 3] = 255;
     }
   }
-  const crc = (buffer) => {
+  const crc = (buffer: Buffer) => {
     let c = 0xffffffff;
     for (const b of buffer) {
       c ^= b;
@@ -342,7 +368,7 @@ function trayImage() {
     }
     return (c ^ 0xffffffff) >>> 0;
   };
-  const chunk = (type, data) => {
+  const chunk = (type: string, data: Buffer) => {
     const name = Buffer.from(type),
       length = Buffer.alloc(4),
       checksum = Buffer.alloc(4);
@@ -364,6 +390,74 @@ function trayImage() {
   const image = nativeImage.createFromBuffer(png);
   image.setTemplateImage(true);
   return image;
+}
+function updateApplicationMenu() {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "Taskline",
+        submenu: [
+          { role: "about" },
+          { type: "separator" },
+          {
+            id: "open-board",
+            label: "Open Taskline",
+            accelerator: settings.boardShortcut,
+            click: createBoard,
+          },
+          {
+            label: "New task",
+            accelerator: settings.textShortcut,
+            click: () => showCapture(),
+          },
+          {
+            label: "Capture screenshot",
+            accelerator: settings.screenshotShortcut,
+            click: captureRegion,
+          },
+          { type: "separator" },
+          { role: "hide" },
+          { role: "hideOthers" },
+          { role: "unhide" },
+          { type: "separator" },
+          { role: "quit" },
+        ],
+      },
+      {
+        label: "Edit",
+        submenu: [
+          { role: "undo" },
+          { role: "redo" },
+          { type: "separator" },
+          { role: "cut" },
+          { role: "copy" },
+          { role: "paste" },
+          { role: "selectAll" },
+          { type: "separator" },
+          ...(process.platform === "darwin"
+            ? [
+                {
+                  label: "Start Dictation",
+                  selector: "startDictation:",
+                } as MenuItemConstructorOptions & { selector: string },
+              ]
+            : []),
+        ],
+      },
+      {
+        label: "View",
+        submenu: [
+          { role: "reload" },
+          { role: "toggleDevTools" },
+          { type: "separator" },
+          { role: "resetZoom" },
+          { role: "zoomIn" },
+          { role: "zoomOut" },
+          { role: "togglefullscreen" },
+        ],
+      },
+    ]),
+  );
 }
 async function createTray() {
   tray = new Tray(trayImage());
@@ -393,7 +487,7 @@ ipcMain.handle("region:cancel", () => {
   closeRegionWindows();
   restoreFocus();
 });
-ipcMain.handle("region:finish", async (event, rectangle) => {
+ipcMain.handle("region:finish", async (event, rectangle: Rectangle) => {
   const entry = regionWindows.get(event.sender.id);
   if (!entry) throw Error("No region capture is active");
   const size = entry.source.getSize(),
@@ -406,7 +500,7 @@ ipcMain.handle("region:finish", async (event, rectangle) => {
   if (width < 1 || height < 1) throw Error("Select a non-empty screen region");
   const bytes = entry.source.crop({ x, y, width, height }).toPNG();
   closeRegionWindows();
-  const image = await post("/attachments", {
+  const image = await post<ImageAttachment>("/attachments", {
     base64: bytes.toString("base64"),
     name:
       "Screen region " + new Date().toISOString().replaceAll(":", "-") + ".png",
@@ -469,7 +563,7 @@ app
       if (!response.ok) throw Error("API not healthy");
     } catch {
       const module = await import(
-        pathToFileURL(path.join(__dirname, "../server/index.mjs")).href
+        pathToFileURL(path.join(__dirname, "../server/index.js")).href
       );
       runtime = await module.startServer();
     }
@@ -479,7 +573,8 @@ app
     settings = state.settings;
     try {
       await configure(settings);
-    } catch (e) {
+    } catch (caught) {
+      const e = asError(caught);
       console.error(e.message);
     }
     console.log("Taskline: shortcuts configured");
@@ -487,67 +582,7 @@ app
     console.log("Taskline: tray ready");
     createBoard();
     console.log("Taskline: board created");
-    Menu.setApplicationMenu(
-      Menu.buildFromTemplate([
-        {
-          label: "Taskline",
-          submenu: [
-            { role: "about" },
-            { type: "separator" },
-            {
-              id: "open-board",
-              label: "Open Taskline",
-              accelerator: settings.boardShortcut,
-              click: createBoard,
-            },
-            {
-              label: "New task",
-              accelerator: settings.textShortcut,
-              click: () => showCapture(),
-            },
-            {
-              label: "Capture screenshot",
-              accelerator: settings.screenshotShortcut,
-              click: captureRegion,
-            },
-            { type: "separator" },
-            { role: "hide" },
-            { role: "hideOthers" },
-            { role: "unhide" },
-            { type: "separator" },
-            { role: "quit" },
-          ],
-        },
-        {
-          label: "Edit",
-          submenu: [
-            { role: "undo" },
-            { role: "redo" },
-            { type: "separator" },
-            { role: "cut" },
-            { role: "copy" },
-            { role: "paste" },
-            { role: "selectAll" },
-            { type: "separator" },
-            ...(process.platform === "darwin"
-              ? [{ label: "Start Dictation", selector: "startDictation:" }]
-              : []),
-          ],
-        },
-        {
-          label: "View",
-          submenu: [
-            { role: "reload" },
-            { role: "toggleDevTools" },
-            { type: "separator" },
-            { role: "resetZoom" },
-            { role: "zoomIn" },
-            { role: "zoomOut" },
-            { role: "togglefullscreen" },
-          ],
-        },
-      ]),
-    );
+    updateApplicationMenu();
     app.on("activate", createBoard);
   })
   .catch((e) => {

@@ -1,20 +1,46 @@
+import type {
+  ConnectionConfig,
+  T3RpcResults,
+  T3RpcRequests,
+  ThreadLaunchInput,
+  OrchestrationCommand,
+  UploadedImage,
+  Project,
+  Thread,
+} from "../shared/types.js";
+import { asError } from "../shared/errors.js";
 import WebSocket from "ws";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 
+interface Pending {
+  timeout?: ReturnType<typeof setTimeout>;
+  resolve?: (value: unknown) => void;
+  reject?: (error: Error) => void;
+  onValue?: (value: unknown) => void;
+}
+interface WireMessage {
+  _tag: string;
+  requestId?: string;
+  values?: unknown[];
+  exit?: {
+    _tag: string;
+    value?: unknown;
+    cause?: { error?: { message?: string } | string; defect?: unknown }[];
+  };
+}
 export class T3Client extends EventEmitter {
-  constructor(config) {
+  pending = new Map<string, Pending>();
+  sequence = 0;
+  socket: WebSocket | null = null;
+  connecting: Promise<void> | null = null;
+  constructor(public config: ConnectionConfig) {
     super();
-    this.config = config;
-    this.pending = new Map();
-    this.sequence = 0;
-    this.socket = null;
-    this.connecting = null;
   }
   async connect() {
     if (this.socket?.readyState === WebSocket.OPEN) return;
     if (this.connecting) return this.connecting;
-    this.connecting = new Promise((resolve, reject) => {
+    this.connecting = new Promise<void>((resolve, reject) => {
       const url = new URL("/ws", this.config.origin);
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
       url.searchParams.set("orchestrationProtocol", "2");
@@ -48,7 +74,8 @@ export class T3Client extends EventEmitter {
           const parsed = JSON.parse(data.toString());
           for (const msg of Array.isArray(parsed) ? parsed : [parsed])
             this.receive(msg);
-        } catch (e) {
+        } catch (caught) {
+          const e = asError(caught);
           this.emit("protocolError", e.message);
         }
       });
@@ -57,14 +84,14 @@ export class T3Client extends EventEmitter {
     });
     return this.connecting;
   }
-  receive(msg) {
+  receive(msg: WireMessage) {
     if (msg._tag === "Ping") {
-      this.socket.send(JSON.stringify({ _tag: "Pong" }));
+      this.socket!.send(JSON.stringify({ _tag: "Pong" }));
       return;
     }
     const p = this.pending.get(String(msg.requestId));
     if (msg._tag === "Chunk") {
-      this.socket.send(
+      this.socket!.send(
         JSON.stringify({ _tag: "Ack", requestId: msg.requestId }),
       );
       for (const value of msg.values ?? []) p?.onValue?.(value);
@@ -78,43 +105,60 @@ export class T3Client extends EventEmitter {
         const cause = msg.exit?.cause;
         const errors = Array.isArray(cause) ? cause : [cause];
         const details = errors
-          .map((c) => c?.error?.message ?? c?.error ?? c?.defect ?? c)
+          .map(
+            (c) =>
+              (typeof c?.error === "object" ? c.error.message : c?.error) ??
+              c?.defect ??
+              c,
+          )
           .filter(Boolean);
         p.reject?.(Error(JSON.stringify(details)));
       }
     }
   }
-  async call(tag, payload = {}, timeoutMs = 30000) {
+  async call<K extends keyof T3RpcResults>(
+    tag: K,
+    payload: T3RpcRequests[K],
+    timeoutMs = 30000,
+  ): Promise<T3RpcResults[K]> {
     await this.connect();
     const id = String(++this.sequence);
-    return new Promise((resolve, reject) => {
+    return new Promise<T3RpcResults[K]>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         reject(Error(tag + " timed out; outcome may be unknown"));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timeout });
-      this.socket.send(
+      this.pending.set(id, {
+        resolve: (value) => resolve(value as T3RpcResults[K]),
+        reject,
+        timeout,
+      });
+      this.socket!.send(
         JSON.stringify({ _tag: "Request", id, tag, payload, headers: [] }),
       );
     });
   }
-  async subscribe(tag, payload, onValue) {
+  async subscribe(
+    tag: string,
+    payload: unknown,
+    onValue: (value: unknown) => void,
+  ) {
     await this.connect();
     const id = String(++this.sequence);
     this.pending.set(id, {
       onValue,
       reject: (e) => this.emit("subscriptionError", e.message),
     });
-    this.socket.send(
+    this.socket!.send(
       JSON.stringify({ _tag: "Request", id, tag, payload, headers: [] }),
     );
     return () => {
       if (this.socket?.readyState === 1)
-        this.socket.send(JSON.stringify({ _tag: "Interrupt", requestId: id }));
+        this.socket!.send(JSON.stringify({ _tag: "Interrupt", requestId: id }));
       this.pending.delete(id);
     };
   }
-  async http(path) {
+  async http<T>(path: string): Promise<T> {
     const response = await fetch(new URL(path, this.config.origin), {
       headers: {
         Authorization: "Bearer " + this.config.token,
@@ -128,21 +172,25 @@ export class T3Client extends EventEmitter {
     return response.json();
   }
   projects() {
-    return this.http("/api/projects");
+    return this.http<{ projects: Project[] }>("/api/projects");
   }
-  snapshot(threadId) {
+  snapshot(threadId: string) {
     return this.call("orchestration.getThreadProjection", { threadId });
   }
   shell() {
-    return this.http("/api/orchestration/shell");
+    return this.http<{ threads: Thread[] }>("/api/orchestration/shell");
   }
-  dispatch(command) {
+  dispatch(command: OrchestrationCommand) {
     return this.call("orchestration.dispatchCommand", command);
   }
-  launch(input) {
+  launch(input: ThreadLaunchInput) {
     return this.call("orchestration.launchThread", input, 60000);
   }
-  async upload(file) {
+  async upload(file: {
+    name: string;
+    mimeType: string;
+    bytes: Buffer;
+  }): Promise<UploadedImage> {
     const upload = await this.call("attachments.createUploadUrl", {
       type: "image",
       name: file.name,
@@ -154,7 +202,7 @@ export class T3Client extends EventEmitter {
       {
         method: "POST",
         headers: { "content-type": file.mimeType },
-        body: file.bytes,
+        body: new Uint8Array(file.bytes),
       },
     );
     if (!response.ok) throw Error("Upload failed: " + (await response.text()));

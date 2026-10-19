@@ -1,5 +1,19 @@
-import { collectValidationImages } from "./validation-images.mjs";
-import { compareTaskPriority, pendingBlockers } from "./task-planning.mjs";
+import type { T3Client } from "./t3.js";
+import type { Store } from "./store.js";
+import type {
+  Task,
+  Attempt,
+  ProjectPolicy,
+  Project,
+  Thread,
+  Projection,
+  Evidence,
+  Model,
+  Answers,
+} from "../shared/types.js";
+import { asError } from "../shared/errors.js";
+import { collectValidationImages } from "./validation-images.js";
+import { compareTaskPriority, pendingBlockers } from "./task-planning.js";
 import { randomUUID, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -7,7 +21,7 @@ import {
   ReportWorker,
   snapshotEvidence,
   conservativeReport,
-} from "./reports.mjs";
+} from "./reports.js";
 
 const activeStates = new Set([
   "reserved",
@@ -27,19 +41,24 @@ const terminal = new Set([
   "rolled_back",
 ]);
 export class Scheduler {
-  constructor(store, t3, notify) {
-    this.store = store;
-    this.t3 = t3;
-    this.notify = notify;
-    this.projects = [];
-    this.threads = [];
-    this.connected = false;
-    this.error = null;
-    this.busy = false;
-    this.subscriptions = new Map();
+  projects: Project[] = [];
+  threads: Thread[] = [];
+  models: Model[] = [];
+  environment?: { environmentId: string };
+  lastRefresh?: number;
+  connected = false;
+  error: string | null = null;
+  busy = false;
+  subscriptions = new Map<string, () => void>();
+  reports: ReportWorker;
+  timer: ReturnType<typeof setInterval> | undefined;
+  dirtyTimer: ReturnType<typeof setTimeout> | undefined;
+  constructor(
+    public store: Store,
+    public t3: T3Client,
+    public notify: () => void,
+  ) {
     this.reports = new ReportWorker(store, notify);
-    this.timer = null;
-    this.dirtyTimer = null;
     t3.on("disconnected", () => {
       this.connected = false;
       this.subscriptions.clear();
@@ -50,7 +69,7 @@ export class Scheduler {
       this.notify();
     });
   }
-  projectSettings(id) {
+  projectSettings(id: string): ProjectPolicy {
     const project = this.projects.find((p) => p.id === id);
     let baseRef =
       this.threads.find((t) => t.projectId === id && t.branch)?.branch ||
@@ -58,18 +77,17 @@ export class Scheduler {
     try {
       if (
         ["127.0.0.1", "localhost", "[::1]"].includes(
-          new URL(this.t3.config.origin).hostname,
+          new URL(this.t3.config.origin ?? "").hostname,
         )
       ) {
         const head = readFileSync(
-          join(project.workspaceRoot, ".git", "HEAD"),
+          join(project!.workspaceRoot, ".git", "HEAD"),
           "utf8",
         ).trim();
         if (head.startsWith("ref: refs/heads/")) baseRef = head.slice(16);
       }
     } catch {}
     const policy = {
-      id,
       concurrencyLimit: 2,
       autoStart: true,
       model: project?.defaultModelSelection?.model || "gpt-6-luna",
@@ -142,7 +160,9 @@ export class Scheduler {
         this.store.update("threadTargets", target.id, {
           materializedAt: new Date().toISOString(),
         });
-    this.environment = await this.t3.http("/.well-known/t3/environment");
+    this.environment = await this.t3.http<{ environmentId: string }>(
+      "/.well-known/t3/environment",
+    );
     this.connected = true;
     this.error = null;
     this.notify();
@@ -244,7 +264,7 @@ export class Scheduler {
                 "starting",
                 "running",
                 "waiting",
-              ].includes(thread.status))
+              ].includes(thread.status ?? ""))
           ) {
             this.store.update("tasks", task.id, {
               waitReason: "Waiting for the existing thread",
@@ -282,7 +302,8 @@ export class Scheduler {
           await this.admit(task, policy, workspace);
         }
       }
-    } catch (e) {
+    } catch (caught) {
+      const e = asError(caught);
       this.error = e.message;
       this.connected = false;
       this.notify();
@@ -290,7 +311,11 @@ export class Scheduler {
       this.busy = false;
     }
   }
-  async admit(task, policy, workspace) {
+  async admit(
+    task: Task,
+    policy: ProjectPolicy,
+    workspace: string | null | undefined,
+  ) {
     const group = task.groupId ? this.store.get("groups", task.groupId) : null;
     const prompt =
       (group
@@ -307,7 +332,7 @@ export class Scheduler {
       "TASK:\n" +
       task.prompt +
       "\n\nWhen finished, report: what changed, how it was tested (commands and results), remaining work, and questions requiring my decision. Do not claim checks that were not performed.";
-    const attempt = {
+    const attempt: Attempt = {
       id: randomUUID(),
       taskId: task.id,
       projectId: task.projectId,
@@ -348,8 +373,8 @@ export class Scheduler {
     this.notify();
     await this.deliver(attempt);
   }
-  async deliver(attempt) {
-    const task = this.store.get("tasks", attempt.taskId);
+  async deliver(attempt: Attempt) {
+    const task = this.store.require("tasks", attempt.taskId);
     try {
       if (!attempt.attachments.length && task.attachments?.length) {
         const attachments = [];
@@ -430,7 +455,8 @@ export class Scheduler {
       });
       this.watch(attempt.threadId);
       this.notify();
-    } catch (e) {
+    } catch (caught) {
+      const e = asError(caught);
       const definitive =
         /invalid|not found|does not exist|rejected|disabled|Schema|Parse|base ref|Failed to launch|scope/i.test(
           e.message,
@@ -451,7 +477,7 @@ export class Scheduler {
       this.notify();
     }
   }
-  observeThread(projection) {
+  observeThread(projection: Projection) {
     const thread = projection.thread;
     const target = this.store.get("threadTargets", thread.id);
     if (
@@ -475,7 +501,7 @@ export class Scheduler {
       status: thread.status ?? active?.status ?? "idle",
     });
   }
-  async watch(threadId) {
+  async watch(threadId: string) {
     if (this.subscriptions.has(threadId)) return;
     try {
       const unsubscribe = await this.t3.subscribe(
@@ -486,12 +512,13 @@ export class Scheduler {
       this.subscriptions.set(threadId, unsubscribe);
     } catch {}
   }
-  async reconcile(attempt) {
+  async reconcile(attempt: Attempt) {
     this.watch(attempt.threadId);
     let p;
     try {
       p = await this.t3.snapshot(attempt.threadId);
-    } catch (e) {
+    } catch (caught) {
+      const e = asError(caught);
       if (!attempt.runId && /not found/i.test(e.message)) {
         await this.deliver(attempt);
         return;
@@ -542,10 +569,10 @@ export class Scheduler {
         (i) =>
           runIds.has(i.runId) &&
           ["user_input_request", "approval_request"].includes(i.type) &&
-          pendingIds.has(i.requestId),
+          pendingIds.has(i.requestId ?? ""),
       )
       .map((i) => ({
-        requestId: i.requestId,
+        requestId: i.requestId!,
         type: i.type,
         questions: i.questions ?? [],
         prompt: i.prompt ?? "",
@@ -624,11 +651,11 @@ export class Scheduler {
       this.queueTaskReport(attempt.id);
     } else this.notify();
   }
-  async enrichEvidence(a) {
+  async enrichEvidence(a: Pick<Attempt, "evidence" | "threadId">) {
     const enriched = [];
     for (let start = 0; start < (a.evidence ?? []).length; start += 4) {
       const batch = await Promise.all(
-        a.evidence.slice(start, start + 4).map(async (item) => {
+        (a.evidence ?? []).slice(start, start + 4).map(async (item) => {
           if (["command_execution", "file_change"].includes(item.type)) {
             try {
               const full = await this.t3.call("orchestration.getTurnItem", {
@@ -654,7 +681,7 @@ export class Scheduler {
     }
     return enriched;
   }
-  async captureValidationImages(a, persist = true) {
+  async captureValidationImages(a: Attempt, persist = true) {
     const artifacts = await collectValidationImages(
       this.store,
       a,
@@ -669,11 +696,11 @@ export class Scheduler {
     }
     return artifacts;
   }
-  queueTaskReport(attemptId) {
+  queueTaskReport(attemptId: string) {
     this.reports.enqueue({
       key: "task:" + attemptId,
       run: async () => {
-        let a = this.store.get("attempts", attemptId);
+        let a = this.store.require("attempts", attemptId);
         if (!a.evidenceEnriched)
           a = this.store.update("attempts", a.id, {
             evidence: await this.enrichEvidence(a),
@@ -702,7 +729,7 @@ export class Scheduler {
         if (task?.groupId) this.queueGroupReport(task.groupId);
       },
       fail: (e) => {
-        const a = this.store.get("attempts", attemptId);
+        const a = this.store.require("attempts", attemptId);
         this.store.update("attempts", attemptId, {
           reportState: "error",
           reportError: e.message,
@@ -717,7 +744,7 @@ export class Scheduler {
       },
     });
   }
-  queueGroupReport(groupId) {
+  queueGroupReport(groupId: string) {
     const group = this.store.get("groups", groupId);
     if (!group) return;
     this.store.update("groups", groupId, { summaryState: "pending" });
@@ -791,9 +818,9 @@ export class Scheduler {
       },
     });
   }
-  async respond(taskId, requestId, answers) {
-    const task = this.store.get("tasks", taskId);
-    const a = this.store.get("attempts", task.currentAttemptId);
+  async respond(taskId: string, requestId: string, answers: Answers) {
+    const task = this.store.require("tasks", taskId);
+    const a = this.store.require("attempts", task.currentAttemptId);
     await this.t3.dispatch({
       type: "runtime-request.respond",
       commandId: randomUUID(),
@@ -804,8 +831,9 @@ export class Scheduler {
     this.store.event(taskId, "answered", { requestId, answers });
     this.signal();
   }
-  async approve(taskId, requestId, decision) {
-    const task = this.store.get("tasks", taskId);
+  async approve(taskId: string, requestId: string, decision: string) {
+    const task = this.store.require("tasks", taskId);
+    if (!task.threadId) throw Error("Task has no execution thread");
     await this.t3.dispatch({
       type: "runtime-request.respond",
       commandId: randomUUID(),
@@ -815,8 +843,8 @@ export class Scheduler {
     });
     this.signal();
   }
-  async cancel(taskId) {
-    const task = this.store.get("tasks", taskId);
+  async cancel(taskId: string) {
+    const task = this.store.require("tasks", taskId);
     const a = task.currentAttemptId
       ? this.store.get("attempts", task.currentAttemptId)
       : null;

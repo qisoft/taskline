@@ -1,3 +1,9 @@
+import type {
+  StoreTables,
+  ConnectionConfig,
+  ImageAttachment,
+} from "../shared/types.js";
+import { asError } from "../shared/errors.js";
 import { DatabaseSync } from "node:sqlite";
 import {
   mkdirSync,
@@ -10,8 +16,9 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 export class Store {
-  constructor(directory) {
-    this.directory = directory;
+  blobDirectory: string;
+  db: DatabaseSync;
+  constructor(public directory: string) {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     this.blobDirectory = join(directory, "blobs");
     mkdirSync(this.blobDirectory, { recursive: true });
@@ -31,12 +38,12 @@ export class Store {
       this.db.exec(
         `CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY, data TEXT NOT NULL);`,
       );
-    const projectsByGroup = new Map();
+    const projectsByGroup = new Map<string, Set<string>>();
     for (const task of this.list("tasks")) {
       if (!task.groupId || !task.projectId) continue;
       if (!projectsByGroup.has(task.groupId))
         projectsByGroup.set(task.groupId, new Set());
-      projectsByGroup.get(task.groupId).add(task.projectId);
+      projectsByGroup.get(task.groupId)!.add(task.projectId);
     }
     this.transaction(() => {
       for (const group of this.list("groups")) {
@@ -46,17 +53,32 @@ export class Store {
       }
     });
   }
-  list(table) {
+  list<K extends keyof StoreTables>(table: K): StoreTables[K][] {
     return this.db
       .prepare(`SELECT data FROM ${table}`)
       .all()
-      .map((r) => JSON.parse(r.data));
+      .map((r) => JSON.parse(r.data as string));
   }
-  get(table, id) {
+  get<K extends keyof StoreTables>(
+    table: K,
+    id: string | null | undefined,
+  ): StoreTables[K] | null {
+    if (!id) return null;
     const r = this.db.prepare(`SELECT data FROM ${table} WHERE id=?`).get(id);
-    return r ? JSON.parse(r.data) : null;
+    return r ? JSON.parse(r.data as string) : null;
   }
-  put(table, value) {
+  require<K extends keyof StoreTables>(
+    table: K,
+    id: string | null | undefined,
+  ): StoreTables[K] {
+    const value = this.get(table, id);
+    if (!value) throw Error("Not found: " + id);
+    return value;
+  }
+  put<K extends keyof StoreTables>(
+    table: K,
+    value: StoreTables[K],
+  ): StoreTables[K] {
     this.db
       .prepare(
         `INSERT INTO ${table}(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data`,
@@ -64,7 +86,11 @@ export class Store {
       .run(value.id, JSON.stringify(value));
     return value;
   }
-  update(table, id, patch) {
+  update<K extends keyof StoreTables>(
+    table: K,
+    id: string,
+    patch: Partial<StoreTables[K]>,
+  ): StoreTables[K] {
     const value = this.get(table, id);
     if (!value) throw Error("Not found: " + id);
     return this.put(table, {
@@ -73,16 +99,17 @@ export class Store {
       updatedAt: new Date().toISOString(),
     });
   }
-  remove(table, id) {
+  remove(table: keyof StoreTables, id: string) {
     this.db.prepare(`DELETE FROM ${table} WHERE id=?`).run(id);
   }
-  transaction(fn) {
+  transaction<T>(fn: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const result = fn();
       this.db.exec("COMMIT");
       return result;
-    } catch (e) {
+    } catch (caught) {
+      const e = asError(caught);
       this.db.exec("ROLLBACK");
       throw e;
     }
@@ -90,7 +117,7 @@ export class Store {
   settings(id = "app") {
     return this.get("settings", id) ?? { id };
   }
-  event(taskId, type, detail) {
+  event(taskId: string, type: string, detail: unknown) {
     return this.put("events", {
       id: randomUUID(),
       taskId,
@@ -99,7 +126,7 @@ export class Store {
       createdAt: new Date().toISOString(),
     });
   }
-  saveImage(base64, name = "Screenshot.png", mimeType = "image/png") {
+  saveImage(base64: string, name = "Screenshot.png", mimeType = "image/png") {
     const bytes = Buffer.from(base64.replace(/^data:[^,]*,/, ""), "base64");
     if (!bytes.length || bytes.length > 20 * 1024 * 1024)
       throw Error("Image must be between 1 byte and 20 MB");
@@ -107,20 +134,24 @@ export class Store {
       throw Error("Unsupported image type");
     return this.saveImageBytes(bytes, name, mimeType);
   }
-  saveImageBytes(bytes, name, mimeType) {
+  saveImageBytes(
+    bytes: Buffer,
+    name: string,
+    mimeType: string,
+  ): ImageAttachment {
     const id = randomUUID();
     writeFileSync(join(this.blobDirectory, id), bytes);
     return { id, name, mimeType, sizeBytes: bytes.length, url: "/blobs/" + id };
   }
-  image(id) {
+  image(id: string) {
     if (!/^[a-zA-Z0-9-]+$/.test(id)) throw Error("Invalid attachment");
     return readFileSync(join(this.blobDirectory, id));
   }
-  config() {
+  config(): ConnectionConfig {
     const path = join(this.directory, "connection.json");
     return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
   }
-  saveConfig(config) {
+  saveConfig(config: ConnectionConfig) {
     const path = join(this.directory, "connection.json");
     writeFileSync(path, JSON.stringify(config), { mode: 0o600 });
     chmodSync(path, 0o600);

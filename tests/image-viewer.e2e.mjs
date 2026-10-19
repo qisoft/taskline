@@ -4,7 +4,7 @@ import { deflateSync } from "node:zlib";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Store } from "../server/store.mjs";
+import { Store } from "../server/store.js";
 
 let app, window, directory, imagePath;
 const title = "Image viewer fixture";
@@ -110,7 +110,7 @@ test.beforeAll(async () => {
         }
       : {
           args: [
-            "electron/main.cjs",
+            "build/electron/main.cjs",
             "--user-data-dir=" + join(directory, "electron"),
           ],
         }),

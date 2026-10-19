@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { dataDirectory, toolCandidates } from "../server/platform.mjs";
-import { runCommand } from "../server/commands.mjs";
-import { installCli } from "../scripts/install-cli.mjs";
+import { dataDirectory, toolCandidates } from "../server/platform.js";
+import { runCommand } from "../server/commands.js";
+import { installCli } from "../scripts/install-cli.js";
 
 test("data and provider locations follow native platform conventions and explicit overrides", () => {
   assert.equal(

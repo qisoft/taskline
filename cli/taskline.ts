@@ -1,4 +1,14 @@
 #!/usr/bin/env node
+import type {
+  AppState,
+  Task,
+  Settings,
+  Epic,
+  Project,
+} from "../shared/types.js";
+const asError = (value: unknown): Error =>
+  value instanceof Error ? value : new Error(String(value));
+import type { ParseArgsOptionsConfig } from "node:util";
 import { parseArgs } from "node:util";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -9,7 +19,7 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 const exec = promisify(execFile);
 const priorityLevels = ["urgent", "high", "normal", "low", "none"];
-const options = Object.fromEntries(
+const options: ParseArgsOptionsConfig = Object.fromEntries(
   [
     "url",
     "project",
@@ -91,11 +101,54 @@ Failed/cancelled tasks remain blockers. Blockers can belong to other projects.
 On update, --blocked-by replaces the list; block/unblock adds/removes individual links.
 TASKLINE_URL / --url override http://127.0.0.1:4318. Taskline must be running.
 `;
+type CliValues = Partial<
+  Record<
+    | "url"
+    | "project"
+    | "epic"
+    | "thread"
+    | "thread-key"
+    | "prompt"
+    | "prompt-file"
+    | "title"
+    | "name"
+    | "path"
+    | "mode"
+    | "limit"
+    | "base"
+    | "model"
+    | "provider"
+    | "context"
+    | "context-file"
+    | "criteria"
+    | "criteria-file"
+    | "status"
+    | "priority"
+    | "request"
+    | "answers"
+    | "decision"
+    | "id"
+    | "request-id",
+    string
+  > &
+    Record<
+      | "json"
+      | "help"
+      | "paused"
+      | "active"
+      | "mkdir"
+      | "all"
+      | "blocked"
+      | "clear-blockers",
+      boolean
+    > & { image: string[]; "blocked-by": string[]; by: string[] }
+>;
 async function main() {
-  const { values: v, positionals: args } = parseArgs({
+  const { values, positionals: args } = parseArgs({
     options,
     allowPositionals: true,
   });
+  const v = values as CliValues;
   if (v.help || !args.length) {
     console.log(usage);
     return;
@@ -103,7 +156,7 @@ async function main() {
   if (v.paused && v.active) throw Error("Choose either --paused or --active");
   if (
     v.priority !== undefined &&
-    !priorityLevels.includes(v.priority.toLowerCase())
+    !priorityLevels.includes(v.priority!.toLowerCase())
   )
     throw Error("Choose priority: urgent, high, normal, low or none");
   const base = (
@@ -114,7 +167,11 @@ async function main() {
   const url = new URL(base);
   if (!["http:", "https:"].includes(url.protocol))
     throw Error("Invalid Taskline URL");
-  async function api(path, body, method = body === undefined ? "GET" : "POST") {
+  async function api<T = unknown>(
+    path: string,
+    body?: unknown,
+    method = body === undefined ? "GET" : "POST",
+  ) {
     let response;
     try {
       response = await fetch(base + "/api" + path, {
@@ -124,7 +181,8 @@ async function main() {
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(65000),
       });
-    } catch (error) {
+    } catch (caught) {
+      const error = asError(caught);
       throw Error(
         "Taskline is unavailable at " +
           base +
@@ -134,16 +192,27 @@ async function main() {
     }
     const data = await response.json();
     if (!response.ok) throw Error(data.error || "HTTP " + response.status);
-    return data;
+    return data as T;
   }
-  const emit = (data) =>
+  const emit = (data: unknown) =>
     console.log(
       v.json
         ? JSON.stringify(data, null, 2)
         : Array.isArray(data)
           ? data.length
             ? data
-                .map((row) =>
+                .map((item: unknown) => {
+                  const row = item as {
+                    code?: string;
+                    id?: string;
+                    mode?: string;
+                    status?: string;
+                    priority?: string;
+                    blockingTaskIds?: string[];
+                    title?: string;
+                    name?: string;
+                  };
+                  return;
                   [
                     row.code || row.id,
                     row.mode || row.status || "",
@@ -152,8 +221,8 @@ async function main() {
                           row.priority,
                           row.blockingTaskIds?.length
                             ? "blocked by " +
-                              row.blockingTaskIds
-                                .map(
+                              row
+                                .blockingTaskIds!.map(
                                   (id) => "TL-" + id.slice(0, 4).toUpperCase(),
                                 )
                                 .join(",")
@@ -161,21 +230,26 @@ async function main() {
                         ]
                       : []),
                     row.title || row.name || "",
-                  ].join("\t"),
-                )
+                  ].join("\t");
+                })
                 .join("\n")
             : "No items"
           : JSON.stringify(data, null, 2),
     );
   let [kind, action = "list", id] = args;
   kind =
-    { projects: "project", tasks: "task", epics: "epic", threads: "thread" }[
-      kind
-    ] || kind;
+    (
+      {
+        projects: "project",
+        tasks: "task",
+        epics: "epic",
+        threads: "thread",
+      } as Record<string, string>
+    )[kind] || kind;
   if (["status", "pause", "resume"].includes(kind)) {
     if (kind !== "status")
       await api("/settings", { paused: kind === "pause" }, "PATCH");
-    const state = await api("/state");
+    const state = await api<AppState>("/state");
     emit({
       connected: state.connection.connected,
       scheduler: state.settings.paused ? "paused" : "active",
@@ -229,8 +303,8 @@ async function main() {
     emit({ starting: true, pid: child.pid });
     return;
   }
-  const state = await api("/state");
-  const projectThreads = (projectId) => {
+  const state = await api<AppState>("/state");
+  const projectThreads = (projectId: string) => {
     const targets = (state.threadTargets || []).filter(
       (t) => t.projectId === projectId,
     );
@@ -257,7 +331,7 @@ async function main() {
         })),
     ];
   };
-  const taskTarget = (projectId) => {
+  const taskTarget = (projectId: string) => {
     if (v.thread !== undefined && v["thread-key"] !== undefined)
       throw Error("Use either --thread or --thread-key");
     if (v["thread-key"] !== undefined) return { threadKey: v["thread-key"] };
@@ -268,25 +342,29 @@ async function main() {
           : null,
     };
   };
-  const blockerIds = (values) => [
+  const blockerIds = (values: string[]) => [
     ...new Set(
       values
         .flatMap((value) => value.split(","))
         .map((value) => find(state.tasks, value.trim(), "blocking task").id),
     ),
   ];
-  const planningPatch = () => {
+  const planningPatch = (): Partial<Task> => {
     if (v["blocked-by"] && v["clear-blockers"])
       throw Error("Use either --blocked-by or --clear-blockers");
     return {
       ...(v.priority !== undefined
-        ? { priority: v.priority.toLowerCase() }
+        ? { priority: v.priority!.toLowerCase() as Task["priority"] }
         : {}),
       ...(v["blocked-by"] ? { blockedBy: blockerIds(v["blocked-by"]) } : {}),
       ...(v["clear-blockers"] ? { blockedBy: [] } : {}),
     };
   };
-  function find(items, selector, label) {
+  function find<T extends { id: string; title?: string; name?: string }>(
+    items: T[],
+    selector: string | undefined,
+    label: string,
+  ): T {
     if (!selector) throw Error("Specify a " + label + " ID");
     let matches = items.filter((i) => i.id === selector);
     if (!matches.length)
@@ -333,11 +411,12 @@ async function main() {
       );
     return candidates[0];
   }
-  const policy = (p) =>
+  const policy = (p: Project): Partial<Settings> =>
     state.projectSettings.find(
       (s) => s.id === p.id || s.id === "project:" + p.id,
     ) || { autoStart: true, concurrencyLimit: 2 };
-  const mode = (p) => (policy(p).autoStart === false ? "paused" : "active");
+  const mode = (p: Project) =>
+    policy(p).autoStart === false ? "paused" : "active";
   let stdinUsed = false;
   async function stdinText() {
     if (stdinUsed) throw Error("Stdin can only supply one field");
@@ -346,8 +425,11 @@ async function main() {
     for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
     return Buffer.concat(chunks).toString("utf8");
   }
-  async function text(key, required = false) {
-    const file = v[key + "-file"];
+  async function text(
+    key: "prompt" | "context" | "criteria",
+    required = false,
+  ) {
+    const file = v[`${key}-file`];
     if (v[key] !== undefined && file !== undefined)
       throw Error("Use either --" + key + " or --" + key + "-file");
     const value =
@@ -361,7 +443,7 @@ async function main() {
     return value;
   }
   function executionPatch() {
-    const patch = {};
+    const patch: Partial<Settings & Epic> = {};
     if (v.mode !== undefined) patch.mode = v.mode;
     if (v.active) patch.mode = "active";
     if (v.paused) patch.mode = "paused";
@@ -396,7 +478,8 @@ async function main() {
             ...executionPatch(),
           }),
         );
-      } catch (error) {
+      } catch (caught) {
+        const error = asError(caught);
         throw Error(
           error.message +
             "; retry with --id " +
@@ -475,7 +558,7 @@ async function main() {
       return;
     }
     if (["update", "close", "reopen"].includes(action)) {
-      const patch = {};
+      const patch: Partial<Settings & Epic> = {};
       if (v.name) patch.name = v.name;
       const context = await text("context"),
         criteria = await text("criteria");
@@ -505,7 +588,7 @@ async function main() {
       if (v.status) rows = rows.filter((t) => t.status === v.status);
       if (v.priority)
         rows = rows.filter(
-          (t) => (t.priority ?? "normal") === v.priority.toLowerCase(),
+          (t) => (t.priority ?? "normal") === v.priority!.toLowerCase(),
         );
       if (v.blocked) rows = rows.filter((t) => t.blockingTaskIds?.length);
       rows.sort(
@@ -536,12 +619,14 @@ async function main() {
       const attachments = [];
       for (const path of v.image || []) {
         const bytes = await readFile(resolve(path));
-        const mimeType = {
-          ".png": "image/png",
-          ".jpg": "image/jpeg",
-          ".jpeg": "image/jpeg",
-          ".webp": "image/webp",
-        }[extname(path).toLowerCase()];
+        const mimeType = (
+          {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+          } as Record<string, string>
+        )[extname(path).toLowerCase()];
         if (!mimeType) throw Error("Use PNG, JPEG or WebP images");
         attachments.push(
           await api("/attachments", {
@@ -634,7 +719,7 @@ async function main() {
         action,
       )
     ) {
-      let body = {};
+      let body: Record<string, unknown> = {};
       if (action === "revise") body.prompt = await text("prompt", true);
       if (["answer", "approve"].includes(action) && !v.request)
         throw Error("Specify --request");

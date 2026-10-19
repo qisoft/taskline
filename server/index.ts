@@ -1,22 +1,52 @@
-import { ProjectService } from "./projects.mjs";
-import { imageMime } from "./validation-images.mjs";
+interface ApiInput extends Partial<Omit<Task, "questions">>, ProjectInput {
+  origin: string;
+  token: string;
+  base64: string;
+  name: string;
+  mimeType: string;
+  context?: string;
+  acceptanceCriteria?: string;
+  contextVersion?: number;
+  decisions?: string[];
+  requestId: string;
+  answers: Answers;
+  decision: string;
+  blockerIds?: string[];
+}
+import type { ProjectInput } from "./projects.js";
+import type {
+  Task,
+  Epic,
+  AppState,
+  AppSettings,
+  SelectionInput,
+  Answers,
+  Settings,
+} from "../shared/types.js";
+import { asError } from "../shared/errors.js";
+import { ProjectService } from "./projects.js";
+import { imageMime } from "./validation-images.js";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { dataDirectory, t3Home, toolCommand } from "./platform.mjs";
-import { runCommand } from "./commands.mjs";
-import { assetPath } from "./static-files.mjs";
+import { dataDirectory, t3Home, toolCommand } from "./platform.js";
+import { runCommand } from "./commands.js";
+import { assetPath } from "./static-files.js";
 import { randomUUID } from "node:crypto";
-import { Store } from "./store.mjs";
-import { T3Client } from "./t3.mjs";
-import { Scheduler } from "./scheduler.mjs";
-import { recordTargetUsage } from "./target-history.mjs";
-import { taskThreadTarget } from "./thread-targets.mjs";
-import { taskPlanningView, validateTaskPlanning } from "./task-planning.mjs";
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+import { Store } from "./store.js";
+import { T3Client } from "./t3.js";
+import { Scheduler } from "./scheduler.js";
+import { recordTargetUsage } from "./target-history.js";
+import { taskThreadTarget } from "./thread-targets.js";
+import { taskPlanningView, validateTaskPlanning } from "./task-planning.js";
+const moduleRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const root = existsSync(join(moduleRoot, "package.json"))
+  ? moduleRoot
+  : resolve(moduleRoot, "..");
 export const defaultDataDir = dataDirectory();
-const mime = {
+const mime: Record<string, string> = {
   ".html": "text/html",
   ".js": "text/javascript",
   ".css": "text/css",
@@ -29,7 +59,7 @@ export async function startServer({
   dataDir = process.env.TASKLINE_DATA_DIR ?? defaultDataDir,
 } = {}) {
   const store = new Store(dataDir);
-  const connections = new Set();
+  const connections = new Set<ServerResponse>();
   const notify = () => {
     for (const res of connections)
       res.write(
@@ -42,8 +72,7 @@ export async function startServer({
   const t3 = new T3Client(config);
   const scheduler = new Scheduler(store, t3, notify);
   const projects = new ProjectService(store, scheduler, notify);
-  const applicationSettings = () => ({
-    id: "app",
+  const applicationSettings = (): AppSettings => ({
     paused: false,
     textShortcut: "CommandOrControl+Shift+1",
     screenshotShortcut: "CommandOrControl+Shift+2",
@@ -53,12 +82,16 @@ export async function startServer({
     lastProjectId: null,
     lastThreadId: null,
     ...store.settings("app"),
+    id: "app",
   });
-  const validateProject = (projectId) => {
+  const validateProject = (projectId: string | undefined) => {
     if (!scheduler.projects.some((p) => p.id === projectId))
       throw Error("Choose an existing T3 project");
   };
-  const validateGroup = (groupId, projectId) => {
+  const validateGroup = (
+    groupId: string | null | undefined,
+    projectId: string | undefined,
+  ) => {
     if (!groupId) return;
     const group = store.get("groups", groupId);
     if (!group) throw Error("Epic not found");
@@ -66,14 +99,14 @@ export async function startServer({
       throw Error("Choose an epic in this project");
     if (group.status === "done") throw Error("Choose an active epic");
   };
-  const presentTask = (task) =>
+  const presentTask = (task: Task) =>
     taskPlanningView(task, new Map(store.list("tasks").map((t) => [t.id, t])));
   const taskViews = () => {
     const tasks = store.list("tasks");
     const byId = new Map(tasks.map((t) => [t.id, t]));
     return tasks.map((task) => taskPlanningView(task, byId));
   };
-  const state = () => ({
+  const state = (): AppState => ({
     tasks: taskViews().sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     groups: store.list("groups"),
     projects: scheduler.projects,
@@ -130,14 +163,14 @@ export async function startServer({
     scheduler.signal();
     return { connected: true, origin: next.origin };
   }
-  const respond = (res, value, status = 200) => {
+  const respond = (res: ServerResponse, value: unknown, status = 200) => {
     res.writeHead(status, {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
     });
     res.end(JSON.stringify(value));
   };
-  async function body(req) {
+  async function body(req: IncomingMessage): Promise<ApiInput> {
     let chunks = [];
     let size = 0;
     for await (const chunk of req) {
@@ -146,12 +179,14 @@ export async function startServer({
       chunks.push(chunk);
     }
     const text = Buffer.concat(chunks).toString();
-    return text ? JSON.parse(text) : {};
+    return JSON.parse(text || "{}");
   }
   const server = createServer(async (req, res) => {
     try {
-      const requestPort = server.address()?.port ?? port;
-      const url = new URL(req.url, "http://127.0.0.1:" + requestPort);
+      const requestPort =
+        (server.address() as import("node:net").AddressInfo | null)?.port ??
+        port;
+      const url = new URL(req.url ?? "/", "http://127.0.0.1:" + requestPort);
       const path = url.pathname;
       if (
         req.headers.origin &&
@@ -239,21 +274,21 @@ export async function startServer({
         return respond(res, await projects.create(await body(req)), 201);
       if (path === "/api/tasks" && req.method === "POST") {
         const input = await body(req);
-        if (input.prompt?.length > 100000)
+        if ((input.prompt?.length ?? 0) > 100000)
           throw Error("Keep the task prompt below 100,000 characters");
         if (!input.prompt?.trim()) throw Error("Write or dictate a task first");
         if (!scheduler.projects.some((p) => p.id === input.projectId))
           throw Error("Choose an existing T3 project");
         validateGroup(input.groupId, input.projectId);
         const now = new Date().toISOString();
-        const task = {
+        const task: Task = {
           id: randomUUID(),
           title: (
             input.title?.trim() || input.prompt.trim().split("\n")[0]
           ).slice(0, 100),
           prompt: input.prompt.trim(),
           originalPrompt: input.prompt.trim(),
-          projectId: input.projectId,
+          projectId: input.projectId!,
           threadId: input.threadId || null,
           groupId: input.groupId || null,
           model: input.model || "gpt-6-luna",
@@ -366,7 +401,7 @@ export async function startServer({
           store.event(id, action, { prompt });
           notify();
           scheduler.signal();
-          return respond(res, presentTask(store.get("tasks", id)));
+          return respond(res, presentTask(store.require("tasks", id)));
         }
         if (action === "block" || action === "unblock") {
           if (
@@ -379,7 +414,7 @@ export async function startServer({
             action === "block"
               ? [...new Set([...(task.blockedBy ?? []), ...input.blockerIds])]
               : (task.blockedBy ?? []).filter(
-                  (id) => !input.blockerIds.includes(id),
+                  (id) => !input.blockerIds!.includes(id),
                 );
         }
         if (
@@ -390,7 +425,11 @@ export async function startServer({
             validateGroup(input.groupId, task.projectId);
           if (input.status === "done" && task.status !== "review")
             throw Error("Only a reviewed task can be accepted");
-          const patch = validateTaskPlanning(task, input, store.list("tasks"));
+          const patch: Partial<Task> = validateTaskPlanning(
+            task,
+            input,
+            store.list("tasks"),
+          );
           if ("prompt" in input) {
             if (task.status !== "todo")
               throw Error(
@@ -421,8 +460,8 @@ export async function startServer({
             "rank",
             "status",
             "failureAcknowledged",
-          ])
-            if (key in input) patch[key] = input[key];
+          ] as const)
+            if (key in input) Object.assign(patch, { [key]: input[key] });
           if (
             task.status === "doing" &&
             input.status &&
@@ -456,10 +495,10 @@ export async function startServer({
         const input = await body(req);
         if (!input.name?.trim()) throw Error("Enter an epic name");
         validateProject(input.projectId);
-        const group = {
+        const group: Epic = {
           id: randomUUID(),
           name: input.name.trim(),
-          projectId: input.projectId,
+          projectId: input.projectId!,
           context: input.context ?? "",
           acceptanceCriteria: input.acceptanceCriteria ?? "",
           contextVersion: 1,
@@ -553,7 +592,10 @@ export async function startServer({
         if ("groupId" in input) validateGroup(input.groupId, input.projectId);
         const updated = store.put(
           "settings",
-          recordTargetUsage(applicationSettings(), input),
+          recordTargetUsage(applicationSettings(), {
+            ...input,
+            projectId: input.projectId!,
+          }),
         );
         notify();
         return respond(res, updated);
@@ -588,13 +630,14 @@ export async function startServer({
         "Content-Type": mime[extname(final)] ?? "application/octet-stream",
       });
       res.end(readFileSync(final));
-    } catch (e) {
+    } catch (caught) {
+      const e = asError(caught);
       respond(res, { error: e.message }, 400);
     }
   });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(port, "127.0.0.1", resolve);
+    server.listen(port, "127.0.0.1", () => resolve(undefined));
   });
   if (!t3.config.token && existsSync(join(root, ".t3-token"))) {
     const runtime = JSON.parse(

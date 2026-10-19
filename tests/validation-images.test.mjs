@@ -5,11 +5,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { createServer } from "node:http";
-import { Store } from "../server/store.mjs";
+import { Store } from "../server/store.js";
 import {
   collectValidationImages,
   imageReferences,
-} from "../server/validation-images.mjs";
+} from "../server/validation-images.js";
 const png = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV1cAAAAASUVORK5CYII=",
   "base64",

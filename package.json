@@ -4,21 +4,25 @@
   "description": "Global task capture and local Kanban for T3 Code",
   "private": true,
   "type": "module",
-  "main": "electron/main.cjs",
+  "main": "build/electron/main.cjs",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "server": "node server/index.mjs",
-    "start": "node scripts/launch.mjs",
-    "build": "vite build",
-    "package": "npm run build && electron-builder --mac dir && node scripts/sign-mac.mjs",
-    "test": "node scripts/test-unit.mjs",
+    "server": "node build/server/index.js",
+    "start": "tsx scripts/launch.ts",
+    "build": "npm run typecheck && npm run build:runtime && vite build",
+    "package": "npm run build && electron-builder --mac dir && tsx scripts/sign-mac.ts",
+    "test": "npm run build:runtime && tsx scripts/test-unit.ts",
     "test:e2e": "playwright test",
-    "test:live": "node scripts/live-e2e.mjs",
+    "test:live": "tsx scripts/live-e2e.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "dist:mac": "npm run build && node scripts/dist.mjs mac",
-    "dist:win": "npm run build && node scripts/dist.mjs win",
-    "test:unit": "node scripts/test-unit.mjs"
+    "dist:mac": "npm run build && tsx scripts/dist.ts mac",
+    "dist:win": "npm run build && tsx scripts/dist.ts win",
+    "test:unit": "npm test",
+    "typecheck": "tsc --noEmit",
+    "build:runtime": "tsx scripts/build.ts",
+    "check:release": "tsx scripts/check-release.ts",
+    "install:cli": "npm run build:runtime && node build/standalone/install-cli.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "5.3.0",
@@ -31,9 +35,16 @@
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
+    "@types/cross-spawn": "6.0.6",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/ws": "8.18.2",
     "electron": "44.7.0",
     "electron-builder": "26.15.3",
     "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
     "vite": "8.3.4"
   },
   "build": {
@@ -44,8 +55,9 @@
     },
     "files": [
       "dist/**/*",
-      "server/**/*",
-      "electron/**/*",
+      "build/server/**/*",
+      "build/electron/**/*",
+      "build/shared/**/*",
       "package.json",
       "LICENSE"
     ],
@@ -66,11 +78,11 @@
     },
     "extraResources": [
       {
-        "from": "cli/taskline.mjs",
+        "from": "build/standalone/taskline.mjs",
         "to": "taskline.mjs"
       },
       {
-        "from": "scripts/install-cli.mjs",
+        "from": "build/standalone/install-cli.mjs",
         "to": "install-cli.mjs"
       }
     ],
@@ -94,7 +106,7 @@
   },
   "author": "qisoft",
   "bin": {
-    "taskline": "cli/taskline.mjs"
+    "taskline": "build/standalone/taskline.mjs"
   },
   "license": "MIT",
   "homepage": "https://github.com/qisoft/taskline",

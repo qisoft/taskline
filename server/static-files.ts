@@ -1,6 +1,6 @@
 import path from "node:path";
 
-export function assetPath(directory, pathname, paths = path) {
+export function assetPath(directory: string, pathname: string, paths = path) {
   const file = paths.join(
     directory,
     pathname === "/" ? "index.html" : pathname,

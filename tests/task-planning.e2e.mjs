@@ -4,7 +4,7 @@ import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { startServer } from "../server/index.mjs";
+import { startServer } from "../server/index.js";
 const exec = promisify(execFile);
 
 test("native board, capture composer and bundled CLI share priorities and blocker state", async ({}, testInfo) => {

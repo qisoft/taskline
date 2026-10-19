@@ -1,3 +1,16 @@
+import type {
+  AppState,
+  AppSettings,
+  Task,
+  Epic,
+  ImageAttachment,
+  ValidationArtifacts,
+  TaskDetail as TaskDetailData,
+  SelectionInput,
+  DesktopInfo,
+  Priority,
+} from "../shared/types.js";
+import { asError } from "../shared/errors.js";
 import React, {
   useState,
   useEffect,
@@ -41,27 +54,27 @@ import {
   CircleHelp,
 } from "lucide-react";
 import "./style.css";
-import { projectModel } from "./composer-defaults.mjs";
+import { projectModel } from "./composer-defaults.js";
 import {
   defaultProject,
   projectTargets,
   recentProjects,
   recentThreads,
-} from "./task-targets.mjs";
-import { recordTargetUsage } from "../server/target-history.mjs";
+} from "./task-targets.js";
+import { recordTargetUsage } from "../server/target-history.js";
 import {
   priorities,
   compareTaskPriority,
   pendingBlockers,
-} from "../server/task-planning.mjs";
+} from "../server/task-planning.js";
 import "@fontsource-variable/inter";
 if (window.taskline) document.body.classList.add("desktop");
 
-const api = async (
-  path,
-  body,
+const api = async <T = unknown,>(
+  path: string,
+  body?: unknown,
   method = body === undefined ? "GET" : "POST",
-) => {
+): Promise<T> => {
   const res = await fetch("/api" + path, {
     method,
     headers: body === undefined ? {} : { "content-type": "application/json" },
@@ -77,12 +90,12 @@ const columns = [
   { id: "review", title: "Review", icon: CircleHelp },
   { id: "done", title: "Done", icon: CheckCircle2 },
 ];
-const time = (value) =>
+const time = (value: string | number | Date) =>
   new Date(value).toLocaleString(undefined, {
     dateStyle: "short",
     timeStyle: "short",
   });
-const label = {
+const label: Record<string, string> = {
   reserved: "Starting",
   preparing: "Preparing workspace",
   starting: "Starting",
@@ -96,7 +109,17 @@ const label = {
   cancelled: "Cancelled",
   queued_on_board: "Queued on board",
 };
-function IconButton({ children, onClick, title, className = "" }) {
+function IconButton({
+  children,
+  onClick,
+  title,
+  className = "",
+}: {
+  children: React.ReactNode;
+  onClick: React.MouseEventHandler<HTMLButtonElement>;
+  title: string;
+  className?: string;
+}) {
   return (
     <button
       className={"icon-button " + className}
@@ -108,7 +131,17 @@ function IconButton({ children, onClick, title, className = "" }) {
     </button>
   );
 }
-function Modal({ title, children, onClose, className = "" }) {
+function Modal({
+  title,
+  children,
+  onClose,
+  className = "",
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+  className?: string;
+}) {
   return (
     <div
       className="modal-backdrop"
@@ -132,28 +165,32 @@ function Modal({ title, children, onClose, className = "" }) {
   );
 }
 
-const ImageViewerContext = createContext(null);
-function ImageViewerProvider({ children }) {
-  const [image, setImage] = useState(null);
+const ImageViewerContext = createContext<
+  ((image: ImageAttachment) => void) | null
+>(null);
+function ImageViewerProvider({ children }: { children: React.ReactNode }) {
+  const [image, setImage] = useState<ImageAttachment | null>(null);
   const [actualSize, setActualSize] = useState(false);
-  const viewer = useRef(null);
-  const closeButton = useRef(null);
+  const viewer = useRef<HTMLElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!image) return;
     const previousFocus = document.activeElement;
-    const root = document.getElementById("root");
+    const root = document.getElementById("root")!;
     const wasInert = root.inert;
     root.inert = true;
-    closeButton.current.focus();
-    const keydown = (event) => {
+    closeButton.current?.focus();
+    const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
         setImage(null);
       }
       if (event.key === "Tab") {
-        const buttons = [...viewer.current.querySelectorAll("button")];
-        const index = buttons.indexOf(document.activeElement);
+        const buttons = [...viewer.current!.querySelectorAll("button")];
+        const index = buttons.findIndex(
+          (button) => button === document.activeElement,
+        );
         event.preventDefault();
         buttons[
           (index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length
@@ -164,7 +201,8 @@ function ImageViewerProvider({ children }) {
     return () => {
       document.removeEventListener("keydown", keydown, true);
       root.inert = wasInert;
-      if (previousFocus?.isConnected) previousFocus.focus();
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected)
+        previousFocus.focus();
     };
   }, [image]);
   return (
@@ -230,7 +268,17 @@ function ImageViewerProvider({ children }) {
     </ImageViewerContext.Provider>
   );
 }
-function ImagePreview({ image, className, lazy = false, alt }) {
+function ImagePreview({
+  image,
+  className,
+  lazy = false,
+  alt,
+}: {
+  image: ImageAttachment;
+  className?: string;
+  lazy?: boolean;
+  alt?: string;
+}) {
   const openImage = useContext(ImageViewerContext);
   return (
     <button
@@ -239,7 +287,7 @@ function ImagePreview({ image, className, lazy = false, alt }) {
       aria-label={"View image: " + (image.name || "Screenshot")}
       onClick={(event) => {
         event.stopPropagation();
-        openImage(image);
+        openImage?.(image);
       }}
       onKeyDown={(event) => event.stopPropagation()}
     >
@@ -260,12 +308,19 @@ function BlockerPicker({
   excludeId,
   disabled = false,
   onOpenTask,
+}: {
+  state: AppState;
+  value: string[];
+  onChange: (value: string[]) => void;
+  excludeId?: string;
+  disabled?: boolean;
+  onOpenTask?: (id: string) => void;
 }) {
   return (
     <div className="blocker-picker">
       {value.map((id) => {
         const blocker = state.tasks.find((t) => t.id === id);
-        const resolved = ["review", "done"].includes(blocker?.status);
+        const resolved = ["review", "done"].includes(blocker?.status ?? "");
         const text =
           "TL-" +
           id.slice(0, 4).toUpperCase() +
@@ -334,6 +389,16 @@ function Composer({
   initialProjectId,
   initialGroupId,
   onSelection,
+}: {
+  state: AppState;
+  onClose: () => void;
+  onCreated: (task: Task) => void;
+  onRefresh: () => Promise<unknown>;
+  captureOnly?: boolean;
+  initialAttachments?: ImageAttachment[];
+  initialProjectId?: string;
+  initialGroupId?: string;
+  onSelection: (input: SelectionInput) => Promise<unknown>;
 }) {
   const [projectId, setProject] = useState(() =>
     defaultProject(state, initialProjectId),
@@ -354,11 +419,11 @@ function Composer({
   );
   const [attachments, setAttachments] = useState(initialAttachments);
   const [priority, setPriority] = useState("normal");
-  const [blockedBy, setBlockedBy] = useState([]);
+  const [blockedBy, setBlockedBy] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const threads = recentThreads(state, projectId);
-  const remember = (input) =>
+  const remember = (input: Partial<SelectionInput>) =>
     onSelection({ projectId, ...input }).catch((e) => setError(e.message));
   useEffect(() => {
     if (
@@ -383,22 +448,23 @@ function Composer({
         if (a) setAttachments([a]);
       });
   }, []);
-  async function attach(files) {
+  async function attach(files: Iterable<File>) {
     try {
       for (const file of files) {
-        const base64 = await new Promise((resolve) => {
+        const base64 = await new Promise<string>((resolve) => {
           const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
+          reader.onload = () => resolve(String(reader.result));
           reader.readAsDataURL(file);
         });
-        const a = await api("/attachments", {
+        const a = await api<ImageAttachment>("/attachments", {
           base64,
           name: file.name,
           mimeType: file.type,
         });
         setAttachments((previous) => [...previous, a]);
       }
-    } catch (e) {
+    } catch (caught) {
+      const e = asError(caught);
       setError(e.message);
     }
   }
@@ -407,7 +473,7 @@ function Composer({
     setBusy(true);
     setError("");
     try {
-      const task = await api("/tasks", {
+      const task = await api<Task>("/tasks", {
         prompt,
         projectId,
         ...(threadId === "__named__"
@@ -424,7 +490,8 @@ function Composer({
       onCreated(task);
       if (captureOnly) window.taskline?.closeCapture();
       else onClose();
-    } catch (e) {
+    } catch (caught) {
+      const e = asError(caught);
       setError(e.message);
     } finally {
       setBusy(false);
@@ -648,13 +715,17 @@ function Composer({
               accept="image/*"
               multiple
               aria-label="Attach screenshot"
-              onChange={(e) => attach(Array.from(e.target.files))}
+              onChange={(e) => attach(Array.from(e.target.files ?? []))}
             />
           </label>
           <IconButton
             title="Dictate using your system dictation shortcut"
             onClick={() =>
-              document.querySelector('[aria-label="Task prompt"]')?.focus()
+              document
+                .querySelector<HTMLTextAreaElement>(
+                  '[aria-label="Task prompt"]',
+                )
+                ?.focus()
             }
           >
             <Mic size={18} />
@@ -693,7 +764,7 @@ function Composer({
   );
 }
 
-function ValidationImages({ record }) {
+function ValidationImages({ record }: { record: ValidationArtifacts }) {
   if (!record.validationImages?.length && !record.validationImageIssues?.length)
     return null;
   return (
@@ -727,7 +798,17 @@ function ValidationImages({ record }) {
   );
 }
 
-function TaskCard({ task, state, onOpen, onDragStart }) {
+function TaskCard({
+  task,
+  state,
+  onOpen,
+  onDragStart,
+}: {
+  task: Task;
+  state: AppState;
+  onOpen: (id: string) => void;
+  onDragStart?: (id: string) => void;
+}) {
   const project = state.projects.find((p) => p.id === task.projectId);
   const group = state.groups.find((g) => g.id === task.groupId);
   const questions =
@@ -840,15 +921,29 @@ function TaskCard({ task, state, onOpen, onDragStart }) {
     </article>
   );
 }
-function TaskDetail({ id, state, onClose, onRefresh, onError, onOpenTask }) {
-  const [detail, setDetail] = useState(null);
-  const [answers, setAnswers] = useState({});
+function TaskDetail({
+  id,
+  state,
+  onClose,
+  onRefresh,
+  onError,
+  onOpenTask,
+}: {
+  id: string;
+  state: AppState;
+  onClose: () => void;
+  onRefresh: () => Promise<unknown>;
+  onError: (error: unknown) => void;
+  onOpenTask: (id: string) => void;
+}) {
+  const [detail, setDetail] = useState<TaskDetailData | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [revision, setRevision] = useState("");
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState("overview");
   const task = state.tasks.find((t) => t.id === id);
   useEffect(() => {
-    api("/tasks/" + id)
+    api<TaskDetailData>("/tasks/" + id)
       .then(setDetail)
       .catch(onError);
   }, [id, task?.updatedAt, task?.reportState]);
@@ -856,12 +951,13 @@ function TaskDetail({ id, state, onClose, onRefresh, onError, onOpenTask }) {
   const attempt =
     detail?.attempts.find((a) => a.id === task.currentAttemptId) ||
     detail?.attempts.at(-1);
-  async function action(name, data = {}) {
+  async function action(name: string, data: unknown = {}) {
     setBusy(true);
     try {
       await api("/tasks/" + id + "/" + name, data);
       await onRefresh();
-    } catch (e) {
+    } catch (caught) {
+      const e = asError(caught);
       onError(e);
     } finally {
       setBusy(false);
@@ -870,12 +966,13 @@ function TaskDetail({ id, state, onClose, onRefresh, onError, onOpenTask }) {
   const project = state.projects.find((p) => p.id === task.projectId);
   const report = task.report;
   const target = state.threadTargets?.find((t) => t.id === task.threadId);
-  async function updatePlanning(patch) {
+  async function updatePlanning(patch: Partial<Task>) {
     setBusy(true);
     try {
       await api("/tasks/" + id, patch, "PATCH");
       await onRefresh();
-    } catch (e) {
+    } catch (caught) {
+      const e = asError(caught);
       onError(e);
     } finally {
       setBusy(false);
@@ -905,7 +1002,7 @@ function TaskDetail({ id, state, onClose, onRefresh, onError, onOpenTask }) {
                 title="Open in T3 Code"
                 onClick={() =>
                   window.taskline
-                    ? window.taskline.openThread(task.threadId)
+                    ? window.taskline.openThread(task!.threadId!)
                     : window.open("http://127.0.0.1:3773", "_blank")
                 }
               >
@@ -940,7 +1037,9 @@ function TaskDetail({ id, state, onClose, onRefresh, onError, onOpenTask }) {
               aria-label="Task priority"
               value={task.priority ?? "normal"}
               disabled={busy}
-              onChange={(e) => updatePlanning({ priority: e.target.value })}
+              onChange={(e) =>
+                updatePlanning({ priority: e.target.value as Priority })
+              }
             >
               {priorities.map((p) => (
                 <option key={p.value} value={p.value}>
@@ -986,7 +1085,8 @@ function TaskDetail({ id, state, onClose, onRefresh, onError, onOpenTask }) {
                     "PATCH",
                   );
                   onRefresh();
-                } catch (e) {
+                } catch (caught) {
+                  const e = asError(caught);
                   onError(e);
                 }
               }}
@@ -1086,7 +1186,7 @@ function TaskDetail({ id, state, onClose, onRefresh, onError, onOpenTask }) {
                           {q.questions.map((question) => (
                             <div className="question-field" key={question.id}>
                               <label>{question.question}</label>
-                              {question.options?.length > 0 && (
+                              {(question.options?.length ?? 0) > 0 && (
                                 <select
                                   aria-label={
                                     question.header || question.question
@@ -1100,7 +1200,7 @@ function TaskDetail({ id, state, onClose, onRefresh, onError, onOpenTask }) {
                                   }
                                 >
                                   <option value="">Choose…</option>
-                                  {question.options.map((o) => (
+                                  {question.options?.map((o) => (
                                     <option
                                       key={o.label}
                                       value={o.value ?? o.label}
@@ -1292,7 +1392,9 @@ function TaskDetail({ id, state, onClose, onRefresh, onError, onOpenTask }) {
                       {item.title || item.id.slice(0, 20)}
                     </summary>
                     <pre>
-                      {item.payload.input && item.payload.input + "\n\n"}
+                      {typeof item.payload.input === "string"
+                        ? item.payload.input + "\n\n"
+                        : null}
                       {typeof item.text === "string"
                         ? item.text
                         : JSON.stringify(item.text)}
@@ -1381,7 +1483,19 @@ function TaskDetail({ id, state, onClose, onRefresh, onError, onOpenTask }) {
     </div>
   );
 }
-function EpicEditor({ group, projects, projectId, onClose, onSave }) {
+function EpicEditor({
+  group,
+  projects,
+  projectId,
+  onClose,
+  onSave,
+}: {
+  group?: Partial<Epic> | null;
+  projects: AppState["projects"];
+  projectId?: string;
+  onClose: () => void;
+  onSave: (group: Epic) => unknown;
+}) {
   const [selectedProject, setSelectedProject] = useState(
     group?.projectId || projectId || "",
   );
@@ -1447,7 +1561,7 @@ function EpicEditor({ group, projects, projectId, onClose, onSave }) {
             if (busy) return;
             setBusy(true);
             try {
-              const saved = await api(
+              const saved = await api<Epic>(
                 group ? "/groups/" + group.id : "/groups",
                 {
                   name,
@@ -1459,7 +1573,8 @@ function EpicEditor({ group, projects, projectId, onClose, onSave }) {
               );
               await onSave(saved);
               onClose();
-            } catch (e) {
+            } catch (caught) {
+              const e = asError(caught);
               setError(e.message);
             } finally {
               setBusy(false);
@@ -1472,8 +1587,18 @@ function EpicEditor({ group, projects, projectId, onClose, onSave }) {
     </Modal>
   );
 }
-function SettingsDialog({ state, onClose, onRefresh, onError }) {
-  const [desktop, setDesktop] = useState(null);
+function SettingsDialog({
+  state,
+  onClose,
+  onRefresh,
+  onError,
+}: {
+  state: AppState;
+  onClose: () => void;
+  onRefresh: () => Promise<unknown>;
+  onError: (error: unknown) => void;
+}) {
+  const [desktop, setDesktop] = useState<DesktopInfo | null>(null);
   useEffect(() => {
     window.taskline?.desktopInfo().then(setDesktop);
   }, []);
@@ -1481,8 +1606,10 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState(state.settings);
-  const [autoOverrides, setAutoOverrides] = useState({});
-  async function connect(local) {
+  const [autoOverrides, setAutoOverrides] = useState<
+    Record<string, boolean | undefined>
+  >({});
+  async function connect(local: boolean) {
     setBusy(true);
     try {
       await api(
@@ -1491,7 +1618,8 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
       );
       await onRefresh();
       setToken("");
-    } catch (e) {
+    } catch (caught) {
+      const e = asError(caught);
       onError(e);
     } finally {
       setBusy(false);
@@ -1559,7 +1687,7 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
             {desktop.screenRecording !== "granted" && (
               <button
                 className="button"
-                onClick={() => window.taskline.openScreenPermissions()}
+                onClick={() => window.taskline?.openScreenPermissions()}
               >
                 Enable screen recording
               </button>
@@ -1650,7 +1778,8 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
                           "PATCH",
                         );
                         onRefresh();
-                      } catch (e) {
+                      } catch (caught) {
+                        const e = asError(caught);
                         onError(e);
                       }
                   }}
@@ -1672,7 +1801,8 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
                         "PATCH",
                       );
                       onRefresh();
-                    } catch (e) {
+                    } catch (caught) {
+                      const e = asError(caught);
                       onError(e);
                     }
                   }}
@@ -1697,7 +1827,8 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
                         "PATCH",
                       );
                       await onRefresh();
-                    } catch (e) {
+                    } catch (caught) {
+                      const e = asError(caught);
                       onError(e);
                     } finally {
                       setAutoOverrides((current) => ({
@@ -1730,14 +1861,16 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
               if (window.taskline) await window.taskline.configure(settings);
               try {
                 await api("/settings", settings, "PATCH");
-              } catch (e) {
+              } catch (caught) {
+                const e = asError(caught);
                 if (window.taskline)
                   await window.taskline.configure(state.settings);
                 throw e;
               }
               onRefresh();
               onClose();
-            } catch (e) {
+            } catch (caught) {
+              const e = asError(caught);
               onError(e);
             } finally {
               setBusy(false);
@@ -1751,22 +1884,24 @@ function SettingsDialog({ state, onClose, onRefresh, onError }) {
   );
 }
 function App() {
-  const [state, setState] = useState(null);
-  const [desktop, setDesktop] = useState(null);
+  const [state, setState] = useState<AppState | null>(null);
+  const [desktop, setDesktop] = useState<DesktopInfo | null>(null);
   const [project, setProject] = useState("all");
   const [group, setGroup] = useState("all");
   const [search, setSearch] = useState("");
   const [composer, setComposer] = useState(false);
-  const [detail, setDetail] = useState(null);
+  const [detail, setDetail] = useState<string | null>(null);
   const [settings, setSettings] = useState(false);
-  const [epicEditor, setEpicEditor] = useState(null);
+  const [epicEditor, setEpicEditor] = useState<Epic | Partial<Epic> | null>(
+    null,
+  );
   const [error, setError] = useState("");
   const [view, setView] = useState("board");
   const [projectModeBusy, setProjectModeBusy] = useState(false);
   const [epicPanel, setEpicPanel] = useState(false);
-  const selectionQueue = useRef(Promise.resolve());
+  const selectionQueue = useRef<Promise<unknown>>(Promise.resolve());
   const pendingSelections = useRef(0);
-  const latestSettings = useRef(null);
+  const latestSettings = useRef<AppSettings | null>(null);
   const initialized = useRef(false);
   const captureOnly = new URLSearchParams(location.search).has("capture");
   useEffect(() => {
@@ -1776,7 +1911,7 @@ function App() {
     return () => window.removeEventListener("focus", check);
   }, []);
   async function refresh() {
-    const s = await api("/state");
+    const s = await api<AppState>("/state");
     if (pendingSelections.current && latestSettings.current)
       s.settings = latestSettings.current;
     else latestSettings.current = s.settings;
@@ -1789,7 +1924,8 @@ function App() {
     setState(s);
     return s;
   }
-  function rememberSelection(input) {
+  function rememberSelection(input: SelectionInput) {
+    if (!state) return Promise.resolve();
     latestSettings.current = recordTargetUsage(
       latestSettings.current || state.settings,
       input,
@@ -1801,7 +1937,11 @@ function App() {
         input.projectId,
       ).groupId || "all",
     );
-    setState((previous) => ({ ...previous, settings: latestSettings.current }));
+    setState((previous) =>
+      previous && latestSettings.current
+        ? { ...previous, settings: latestSettings.current }
+        : previous,
+    );
     pendingSelections.current++;
     const pending = selectionQueue.current.then(() => api("/selection", input));
     selectionQueue.current = pending
@@ -1811,19 +1951,19 @@ function App() {
       });
     return pending;
   }
-  const showError = (e) => {
-    setError(e.message || String(e));
+  const showError = (e: unknown) => {
+    setError(asError(e).message);
     setTimeout(() => setError(""), 9000);
   };
   useEffect(() => {
     refresh().catch(showError);
     const events = new EventSource("/api/events");
-    let timer;
+    let timer: ReturnType<typeof setTimeout>;
     events.onmessage = () => {
       clearTimeout(timer);
       timer = setTimeout(() => refresh().catch(showError), 150);
     };
-    const handler = (e) => {
+    const handler = (e: KeyboardEvent) => {
       if (document.querySelector(".image-viewer")) return;
       if (e.key === "Escape") {
         setComposer(false);
@@ -1833,12 +1973,14 @@ function App() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        document.querySelector('[aria-label="Search tasks"]')?.focus();
+        document
+          .querySelector<HTMLInputElement>('[aria-label="Search tasks"]')
+          ?.focus();
       }
       if (
         e.key === "c" &&
         !["INPUT", "TEXTAREA", "SELECT"].includes(
-          document.activeElement.tagName,
+          document.activeElement?.tagName ?? "",
         )
       )
         setComposer(true);
@@ -1887,10 +2029,10 @@ function App() {
   const policy = state.projectSettings.find(
     (s) => s.id === "project:" + project || s.id === project,
   );
-  async function drop(event, column) {
+  async function drop(event: React.DragEvent, column: string) {
     event.preventDefault();
     const id = event.dataTransfer.getData("text/taskline");
-    const task = state.tasks.find((t) => t.id === id);
+    const task = state?.tasks.find((t) => t.id === id);
     if (!task) return;
     try {
       if (column === "todo" && task.status === "failed")
@@ -1904,7 +2046,8 @@ function App() {
           "Running state is controlled by T3. Use the task actions to retry or request changes.",
         );
       await refresh();
-    } catch (e) {
+    } catch (caught) {
+      const e = asError(caught);
       showError(e);
     }
   }
@@ -1919,7 +2062,9 @@ function App() {
         <button
           className="sidebar-search"
           onClick={() =>
-            document.querySelector('[aria-label="Search tasks"]')?.focus()
+            document
+              .querySelector<HTMLInputElement>('[aria-label="Search tasks"]')
+              ?.focus()
           }
         >
           <Search size={15} />
@@ -2044,7 +2189,8 @@ function App() {
                       "PATCH",
                     );
                     await refresh();
-                  } catch (error) {
+                  } catch (caught) {
+                    const error = asError(caught);
                     showError(error);
                   } finally {
                     setProjectModeBusy(false);
@@ -2134,7 +2280,7 @@ function App() {
             </span>
             <button
               className="text-button"
-              onClick={() => window.taskline.openScreenPermissions()}
+              onClick={() => window.taskline?.openScreenPermissions()}
             >
               Enable screen recording
             </button>
@@ -2332,12 +2478,14 @@ function App() {
                         Group summary <span className="small muted">Luna</span>
                       </h3>
                       <p>{g.summary.overview}</p>
-                      {[
-                        ["Open questions", g.summary.openQuestions],
-                        ["Blockers", g.summary.blockers],
-                        ["Testing coverage", g.summary.validationCoverage],
-                        ["Next actions", g.summary.suggestedNextActions],
-                      ].map(
+                      {(
+                        [
+                          ["Open questions", g.summary.openQuestions],
+                          ["Blockers", g.summary.blockers],
+                          ["Testing coverage", g.summary.validationCoverage],
+                          ["Next actions", g.summary.suggestedNextActions],
+                        ] as [string, string[]][]
+                      ).map(
                         ([name, items]) =>
                           items?.length > 0 && (
                             <details key={name}>
@@ -2488,7 +2636,7 @@ function App() {
     </div>
   );
 }
-createRoot(document.getElementById("root")).render(
+createRoot(document.getElementById("root")!).render(
   <ImageViewerProvider>
     <App />
   </ImageViewerProvider>,

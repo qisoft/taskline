@@ -1,3 +1,5 @@
+const asError = (value: unknown): Error & { code?: string } =>
+  value instanceof Error ? value : new Error(String(value));
 import {
   accessSync,
   constants,
@@ -17,6 +19,10 @@ export function installCli({
   resource,
   directory,
   platform = process.platform,
+}: {
+  resource: string;
+  directory: string;
+  platform?: NodeJS.Platform;
 }) {
   accessSync(resource, constants.R_OK);
   mkdirSync(directory, { recursive: true });
@@ -34,7 +40,8 @@ export function installCli({
     let existing;
     try {
       existing = lstatSync(target);
-    } catch (error) {
+    } catch (caught) {
+      const error = asError(caught);
       if (error.code !== "ENOENT") throw error;
     }
     if (existing) {

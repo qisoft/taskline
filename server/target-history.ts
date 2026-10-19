@@ -1,11 +1,16 @@
-export function recordTargetUsage(
-  settings,
-  input,
+import type {
+  Settings,
+  TargetHistory,
+  SelectionInput,
+} from "../shared/types.js";
+export function recordTargetUsage<S extends Settings>(
+  settings: S,
+  input: SelectionInput,
   now = new Date().toISOString(),
 ) {
   let history = settings.targetHistory ?? {};
   if (!Object.keys(history).length && settings.lastProjectId) {
-    const legacy = {};
+    const legacy: TargetHistory = {};
     if ("lastThreadId" in settings) legacy.lastThreadId = settings.lastThreadId;
     if ("lastGroupId" in settings) legacy.lastGroupId = settings.lastGroupId;
     history = { [settings.lastProjectId]: legacy };

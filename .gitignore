@@ -14,3 +14,4 @@ test-results/
 *.sqlite-shm
 *.sqlite-wal
 connection.json
+build/

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { projectModel } from "../src/composer-defaults.mjs";
+import { projectModel } from "../src/composer-defaults.js";
 
 const state = () => ({
   projectSettings: [{ id: "p", instanceId: "codex", model: "gpt-6.1" }],

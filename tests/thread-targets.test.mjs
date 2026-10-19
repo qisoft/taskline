@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { startServer } from "../server/index.mjs";
+import { startServer } from "../server/index.js";
 
 async function fixture(directory) {
   const runtime = await startServer({ port: 0, dataDir: directory });

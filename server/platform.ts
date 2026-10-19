@@ -21,7 +21,7 @@ export function dataDirectory(
   );
 }
 export function toolCandidates(
-  name,
+  name: "t3" | "codex",
   { platform = process.platform, home = homedir(), env = process.env } = {},
 ) {
   const path = platform === "win32" ? win32 : posix;
@@ -51,7 +51,7 @@ export function toolCandidates(
     "/usr/local/bin/codex",
   ];
 }
-export function toolCommand(name) {
+export function toolCommand(name: "t3" | "codex") {
   const candidates = toolCandidates(name);
   return (
     candidates.find(existsSync) ||

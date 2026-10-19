@@ -3,7 +3,7 @@ import { createServer } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Store } from "../server/store.mjs";
+import { Store } from "../server/store.js";
 
 let app, page, directory;
 test.beforeAll(async () => {
@@ -46,14 +46,16 @@ test.beforeAll(async () => {
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.TASKLINE_UI_ORIGIN;
   app = await electron.launch({
-    ...(process.env.TASKLINE_INSTALLED
+    ...(process.env.TASKLINE_TEST_APP || process.env.TASKLINE_INSTALLED
       ? {
-          executablePath: "/Applications/Taskline.app/Contents/MacOS/Taskline",
+          executablePath:
+            process.env.TASKLINE_TEST_APP ||
+            "/Applications/Taskline.app/Contents/MacOS/Taskline",
           args: ["--user-data-dir=" + join(directory, "electron")],
         }
       : {
           args: [
-            "electron/main.cjs",
+            "build/electron/main.cjs",
             "--user-data-dir=" + join(directory, "electron"),
           ],
         }),

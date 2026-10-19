@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export function signMac(app) {
+export function signMac(app: string) {
   if (process.platform !== "darwin") return;
   execFileSync("/usr/bin/codesign", ["--force", "--deep", "--sign", "-", app], {
     stdio: "inherit",

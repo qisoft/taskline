@@ -4,9 +4,9 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
-import { Store } from "../server/store.mjs";
-import { Scheduler } from "../server/scheduler.mjs";
-import { ProjectService } from "../server/projects.mjs";
+import { Store } from "../server/store.js";
+import { Scheduler } from "../server/scheduler.js";
+import { ProjectService } from "../server/projects.js";
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "taskline-mode-"));
   const store = new Store(directory);

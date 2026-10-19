@@ -4,61 +4,63 @@ import { createServer as createPortServer } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { recordTargetUsage } from "../server/target-history.mjs";
+import { recordTargetUsage } from "../server/target-history.js";
 
-const test = process.env.TASKLINE_INSTALLED
-  ? base.extend({
-      page: async ({}, use) => {
-        const directory = mkdtempSync(join(tmpdir(), "taskline-composer-"));
-        const portServer = createPortServer();
-        await new Promise((resolve) =>
-          portServer.listen(0, "127.0.0.1", resolve),
-        );
-        const port = portServer.address().port;
-        await new Promise((resolve) => portServer.close(resolve));
-        const env = {
-          ...process.env,
-          TASKLINE_E2E: "1",
-          TASKLINE_DATA_DIR: directory,
-          TASKLINE_PORT: String(port),
-        };
-        delete env.ELECTRON_RUN_AS_NODE;
-        delete env.TASKLINE_UI_ORIGIN;
-        let app;
-        try {
-          app = await electron.launch({
-            executablePath:
-              "/Applications/Taskline.app/Contents/MacOS/Taskline",
-            args: ["--user-data-dir=" + join(directory, "electron")],
-            env,
-          });
-          expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true);
-          await use(await app.firstWindow());
-        } finally {
-          if (app) {
-            const child = app.process();
-            let timer;
-            try {
-              await Promise.race([
-                app.close(),
-                new Promise((_, reject) => {
-                  timer = setTimeout(
-                    () => reject(Error("Desktop did not quit")),
-                    5000,
-                  );
-                }),
-              ]);
-            } finally {
-              clearTimeout(timer);
-              if (child.exitCode === null && child.signalCode === null)
-                child.kill("SIGTERM");
+const test =
+  process.env.TASKLINE_TEST_APP || process.env.TASKLINE_INSTALLED
+    ? base.extend({
+        page: async ({}, use) => {
+          const directory = mkdtempSync(join(tmpdir(), "taskline-composer-"));
+          const portServer = createPortServer();
+          await new Promise((resolve) =>
+            portServer.listen(0, "127.0.0.1", resolve),
+          );
+          const port = portServer.address().port;
+          await new Promise((resolve) => portServer.close(resolve));
+          const env = {
+            ...process.env,
+            TASKLINE_E2E: "1",
+            TASKLINE_DATA_DIR: directory,
+            TASKLINE_PORT: String(port),
+          };
+          delete env.ELECTRON_RUN_AS_NODE;
+          delete env.TASKLINE_UI_ORIGIN;
+          let app;
+          try {
+            app = await electron.launch({
+              executablePath:
+                process.env.TASKLINE_TEST_APP ||
+                "/Applications/Taskline.app/Contents/MacOS/Taskline",
+              args: ["--user-data-dir=" + join(directory, "electron")],
+              env,
+            });
+            expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true);
+            await use(await app.firstWindow());
+          } finally {
+            if (app) {
+              const child = app.process();
+              let timer;
+              try {
+                await Promise.race([
+                  app.close(),
+                  new Promise((_, reject) => {
+                    timer = setTimeout(
+                      () => reject(Error("Desktop did not quit")),
+                      5000,
+                    );
+                  }),
+                ]);
+              } finally {
+                clearTimeout(timer);
+                if (child.exitCode === null && child.signalCode === null)
+                  child.kill("SIGTERM");
+              }
             }
+            rmSync(directory, { recursive: true, force: true });
           }
-          rmSync(directory, { recursive: true, force: true });
-        }
-      },
-    })
-  : base;
+        },
+      })
+    : base;
 
 let server, origin;
 const fixture = () => ({
@@ -140,7 +142,7 @@ const fixture = () => ({
   connection: { connected: false },
 });
 test.beforeAll(async () => {
-  if (process.env.TASKLINE_INSTALLED) return;
+  if (process.env.TASKLINE_TEST_APP || process.env.TASKLINE_INSTALLED) return;
   server = await createServer({ server: { port: 0, strictPort: false } });
   await server.listen();
   origin = server.resolvedUrls.local[0];
@@ -173,7 +175,8 @@ test.beforeEach(async ({ page }) => {
       });
     else await route.fulfill({ body: "", contentType: "text/event-stream" });
   });
-  if (process.env.TASKLINE_INSTALLED) await page.reload();
+  if (process.env.TASKLINE_TEST_APP || process.env.TASKLINE_INSTALLED)
+    await page.reload();
   else await page.goto(origin);
   await expect(page.locator(".kanban")).toBeVisible();
 });

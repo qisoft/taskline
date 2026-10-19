@@ -1,4 +1,9 @@
-export function projectModel(state, projectId, threadId = "") {
+import type { AppState, Thread } from "../shared/types.js";
+export function projectModel(
+  state: AppState,
+  projectId: string,
+  threadId = "",
+) {
   const threads = state.threads.filter(
     (t) =>
       t.projectId === projectId &&
@@ -7,7 +12,7 @@ export function projectModel(state, projectId, threadId = "") {
         "subagent",
   );
   const selected = threads.find((t) => t.id === threadId);
-  const selection = (t) => ({
+  const selection = (t: Thread) => ({
     instanceId: t.modelSelection?.instanceId || t.providerInstanceId,
     model: t.modelSelection?.model,
   });

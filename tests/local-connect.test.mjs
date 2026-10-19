@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { startServer } from "../server/index.mjs";
+import { startServer } from "../server/index.js";
 
 test("local connection issues a scoped session through the configured native T3 CLI", async () => {
   const directory = mkdtempSync(join(tmpdir(), "taskline-local-connect-"));

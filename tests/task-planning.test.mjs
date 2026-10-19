@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startServer } from "../server/index.mjs";
-import { Store } from "../server/store.mjs";
+import { startServer } from "../server/index.js";
+import { Store } from "../server/store.js";
 
 async function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "taskline-planning-"));

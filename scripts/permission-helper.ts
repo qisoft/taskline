@@ -1,5 +1,11 @@
+import { asError } from "../shared/errors.js";
 import { _electron as electron } from "@playwright/test";
-const env = { ...process.env, TASKLINE_E2E: "1" };
+const env = Object.fromEntries(
+  Object.entries(process.env).filter(
+    (entry): entry is [string, string] => entry[1] !== undefined,
+  ),
+);
+env.TASKLINE_E2E = "1";
 delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({
   executablePath: "/Applications/Taskline.app/Contents/MacOS/Taskline",
@@ -7,22 +13,23 @@ const app = await electron.launch({
   env,
   timeout: 30000,
 });
-const window = await app.firstWindow();
-await window.locator(".kanban").waitFor();
-let info = await window.evaluate(() => window.taskline.desktopInfo());
+const appWindow = await app.firstWindow();
+await appWindow.locator(".kanban").waitFor();
+let info = await appWindow.evaluate(() => window.taskline!.desktopInfo());
 console.log(JSON.stringify(info));
 if (info.screenRecording !== "granted") {
   try {
-    await window.evaluate(() => window.taskline.captureRegion());
-  } catch (error) {
+    await appWindow.evaluate(() => window.taskline!.captureRegion());
+  } catch (caught) {
+    const error = asError(caught);
     console.log(error.message);
   }
-  await window.evaluate(() => window.taskline.openScreenPermissions());
+  await appWindow.evaluate(() => window.taskline!.openScreenPermissions());
   console.log("Waiting for macOS screen-recording permission.");
   for (let i = 0; i < 120; i++) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
     try {
-      info = await window.evaluate(() => window.taskline.desktopInfo());
+      info = await appWindow.evaluate(() => window.taskline!.desktopInfo());
     } catch {
       console.log("Application was restarted by macOS.");
       break;

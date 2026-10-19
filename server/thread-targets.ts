@@ -1,8 +1,15 @@
+import type { Store } from "./store.js";
+import type { Thread } from "../shared/types.js";
 import { randomUUID } from "node:crypto";
 
 // A key is project-scoped. Reserve the T3 ID locally; launch only on admission.
 // Call inside the transaction that saves the task so failed edits leave no binding.
-export function taskThreadTarget(store, threads, projectId, input) {
+export function taskThreadTarget(
+  store: Store,
+  threads: Thread[],
+  projectId: string,
+  input: { threadKey?: string | null; threadId?: string | null },
+) {
   if (input.threadKey != null && typeof input.threadKey !== "string")
     throw Error("Thread key must be text");
   const key = input.threadKey?.trim();

@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Store } from "../server/store.mjs";
-import { startServer } from "../server/index.mjs";
-import { recordTargetUsage } from "../server/target-history.mjs";
+import { Store } from "../server/store.js";
+import { startServer } from "../server/index.js";
+import { recordTargetUsage } from "../server/target-history.js";
 import {
   defaultProject,
   projectTargets,
   recentProjects,
   recentThreads,
-} from "../src/task-targets.mjs";
+} from "../src/task-targets.js";
 
 const state = () => ({
   projects: [{ id: "a" }, { id: "b" }, { id: "empty" }],

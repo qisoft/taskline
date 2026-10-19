@@ -28,7 +28,7 @@ const launch = async () => {
           executablePath: "/Applications/Taskline.app/Contents/MacOS/Taskline",
           args: [],
         }
-      : { args: ["electron/main.cjs"] }),
+      : { args: ["build/electron/main.cjs"] }),
     env,
     timeout: 30000,
   });

@@ -1,8 +1,19 @@
+export interface ProjectInput extends Partial<Settings> {
+  title?: string;
+  workspaceRoot?: string;
+  projectId?: string;
+  commandId?: string;
+  createWorkspaceRootIfMissing?: boolean;
+}
+import type { Scheduler } from "./scheduler.js";
+import type { Store } from "./store.js";
+import type { Settings, ProjectPolicy } from "../shared/types.js";
+import { asError } from "../shared/errors.js";
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 
-export function projectPolicy(input) {
-  const patch = {};
+export function projectPolicy(input: ProjectInput) {
+  const patch: Partial<Settings> = {};
   if (input.mode !== undefined) {
     if (!["active", "paused"].includes(input.mode))
       throw Error("Project mode must be active or paused");
@@ -21,7 +32,7 @@ export function projectPolicy(input) {
       throw Error("Parallel limit must be 1–16");
     patch.concurrencyLimit = limit;
   }
-  for (const key of ["baseRef", "model", "instanceId", "runtimeMode"])
+  for (const key of ["baseRef", "model", "instanceId", "runtimeMode"] as const)
     if (input[key] !== undefined) {
       if (typeof input[key] !== "string" || !input[key].trim())
         throw Error(key + " must be non-empty");
@@ -30,15 +41,15 @@ export function projectPolicy(input) {
   return patch;
 }
 export class ProjectService {
-  constructor(store, scheduler, notify) {
-    this.store = store;
-    this.scheduler = scheduler;
-    this.notify = notify;
-  }
-  update(id, input) {
+  constructor(
+    public store: Store,
+    public scheduler: Scheduler,
+    public notify: () => void,
+  ) {}
+  update(id: string, input: ProjectInput) {
     if (!this.scheduler.projects.some((p) => p.id === id))
       throw Error("Project not found");
-    const settings = {
+    const settings: Settings = {
       ...this.scheduler.projectSettings(id),
       ...projectPolicy(input),
       id: "project:" + id,
@@ -52,7 +63,7 @@ export class ProjectService {
       mode: settings.autoStart === false ? "paused" : "active",
     };
   }
-  async create(input) {
+  async create(input: ProjectInput) {
     if (!input.title?.trim()) throw Error("Enter a project name");
     if (!input.workspaceRoot || !isAbsolute(input.workspaceRoot))
       throw Error("Choose an absolute workspace path");
@@ -60,7 +71,7 @@ export class ProjectService {
     const commandId = input.commandId || randomUUID();
     // The pause policy exists before T3 publishes the new project to any client.
     const existing = this.store.get("settings", "project:" + id);
-    const settings = {
+    const settings: Settings = {
       ...(existing ?? {}),
       autoStart: false,
       ...projectPolicy(input),
@@ -89,7 +100,8 @@ export class ProjectService {
         mode: settings.autoStart === false ? "paused" : "active",
         policy: this.scheduler.projectSettings(id),
       };
-    } catch (error) {
+    } catch (caught) {
+      const error = asError(caught);
       // Preserve the same IDs/policy on unknown outcomes so retries stay paused.
       if (!/timed out|disconnected|unknown/i.test(error.message)) {
         if (existing) this.store.put("settings", existing);
