@@ -15,7 +15,6 @@ const {
 } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
-const os = require("node:os");
 const { execFile, spawn } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
 app.setName("Taskline");
@@ -453,8 +452,9 @@ ipcMain.handle("desktop:info", () => ({
   platform: process.platform,
   appVersion: app.getVersion(),
   dataDir:
+    runtime?.state().dataDir ||
     process.env.TASKLINE_DATA_DIR ||
-    path.join(os.homedir(), "Library", "Application Support", "Taskline"),
+    path.join(app.getPath("appData"), "Taskline"),
 }));
 if (!app.requestSingleInstanceLock() && !process.env.TASKLINE_E2E) {
   app.quit();
