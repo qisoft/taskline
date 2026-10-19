@@ -12,6 +12,7 @@ on:
         options:
           [
             image-viewer,
+            image-viewer-lifecycle,
             region-capture,
             composer,
             project-cli,
@@ -46,6 +47,10 @@ jobs:
       - name: Run selected E2E fixture
         run: |
           case "$TEST_SUITE" in
+            image-viewer-lifecycle)
+              for suite in board-access board-status composer image-viewer; do
+                npm run test:e2e -- "tests/$suite.e2e.mjs" --output="test-results/$suite"
+              done ;;
             image-viewer|region-capture|composer|project-cli|task-planning|thread-targets|board-access|board-status|release-smoke)
               npm run test:e2e -- "tests/$TEST_SUITE.e2e.mjs" ;;
             *) echo "Unsupported fixture"; exit 1 ;;

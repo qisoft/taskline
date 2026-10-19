@@ -147,6 +147,9 @@ test.beforeEach(async () => {
     exact: true,
   });
   if (await closeDetails.isVisible()) await closeDetails.click();
+  // On hosted macOS, native focus flags can settle before content accepts keys.
+  // Activate the content without opening a task before testing keyboard access.
+  await window.getByRole("heading", { name: "My tasks", exact: true }).click();
 });
 
 test.afterAll(async () => {
