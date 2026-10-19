@@ -77,7 +77,7 @@ jobs:
         run: |
           # Keep each packaged-app fixture in its own Playwright process.
           # Reused Electron drivers can stop delivering keyboard input on Intel Macs.
-          for suite in release-smoke project-cli task-planning thread-targets composer image-viewer board-status board-access region-capture; do
+          for suite in board-access board-status composer image-viewer project-cli region-capture release-smoke task-planning thread-targets; do
             npm run test:e2e -- "tests/$suite.e2e.mjs" --output="test-results/$suite"
           done
         env:
