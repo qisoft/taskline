@@ -125,6 +125,30 @@ test.beforeAll(async () => {
     };
   });
 });
+test.beforeEach(async () => {
+  await app.evaluate(({ app }) => app.focus({ steal: true }));
+  await (
+    await app.browserWindow(window)
+  ).evaluate((nativeWindow) => {
+    nativeWindow.show();
+    nativeWindow.focus();
+    nativeWindow.webContents.focus();
+  });
+  await expect
+    .poll(() => window.evaluate(() => document.hasFocus()))
+    .toBe(true);
+  const closeViewer = window.getByRole("button", {
+    name: "Close image viewer",
+    exact: true,
+  });
+  if (await closeViewer.isVisible()) await closeViewer.click();
+  const closeDetails = window.getByRole("button", {
+    name: "Close details",
+    exact: true,
+  });
+  if (await closeDetails.isVisible()) await closeDetails.click();
+});
+
 test.afterAll(async () => {
   if (app) {
     const child = app.process();
@@ -206,6 +230,7 @@ test("opens board and task attachments in-app, supports zoom, Escape, focus retu
 });
 
 test("opens current validation screenshots and attempt history in the same viewer", async () => {
+  await window.getByRole("article", { name: title, exact: true }).click();
   const detail = window.getByRole("dialog", { name: "Task details" });
   await detail
     .getByRole("button", { name: "View image: Result screenshot.png" })
