@@ -230,7 +230,10 @@ test("opens board and task attachments in-app, supports zoom, Escape, focus retu
 });
 
 test("opens current validation screenshots and attempt history in the same viewer", async () => {
-  await window.getByRole("article", { name: title, exact: true }).click();
+  await window
+    .getByRole("article", { name: title, exact: true })
+    .getByRole("heading", { name: title })
+    .click();
   const detail = window.getByRole("dialog", { name: "Task details" });
   await detail
     .getByRole("button", { name: "View image: Result screenshot.png" })
