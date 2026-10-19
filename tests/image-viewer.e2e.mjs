@@ -183,6 +183,8 @@ async function pressNativeKey(page, keyCode) {
   await nativeWindow.evaluate((w, keyCode) => {
     w.webContents.focus();
     w.webContents.sendInputEvent({ type: "keyDown", keyCode });
+    if (keyCode === "Enter")
+      w.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
     w.webContents.sendInputEvent({ type: "keyUp", keyCode });
   }, keyCode);
 }
