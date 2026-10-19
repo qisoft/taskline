@@ -1,20 +1,27 @@
+import { seed } from "./helpers.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EventEmitter } from "node:events";
+import { T3Client } from "../server/t3.js";
+import type {
+  Projection,
+  ThreadLaunchInput,
+  OrchestrationCommand,
+  T3RpcResults,
+} from "../shared/types.js";
 import { Store } from "../server/store.js";
 import { Scheduler } from "../server/scheduler.js";
 import { taskThreadTarget } from "../server/thread-targets.js";
-class FakeT3 extends EventEmitter {
+class FakeT3 extends T3Client {
+  projections = new Map<string, Projection>();
+  launches: ThreadLaunchInput[] = [];
+  dispatches: Extract<OrchestrationCommand, { type: "message.dispatch" }>[] =
+    [];
+  uncertain = false;
   constructor() {
-    super();
-    this.config = { token: "test" };
-    this.projections = new Map();
-    this.launches = [];
-    this.dispatches = [];
-    this.uncertain = false;
+    super({ token: "test" });
   }
   async projects() {
     return {
@@ -27,26 +34,27 @@ class FakeT3 extends EventEmitter {
         ...p.thread,
         status: p.runs.at(-1)?.status ?? "idle",
         activeRunId: p.runs.some((r) => r.status === "running")
-          ? p.runs.at(-1).id
+          ? p.runs.at(-1)!.id
           : null,
       })),
     };
   }
-  async http() {
-    return { environmentId: "test" };
+  async http<T>() {
+    return { environmentId: "test" } as T;
   }
-  async call() {
-    return { providers: [] };
+  async call<K extends keyof T3RpcResults>() {
+    return { providers: [] } as T3RpcResults[K];
   }
   async subscribe() {
     return () => {};
   }
-  async launch(input) {
+  async launch(input: ThreadLaunchInput) {
     this.launches.push(input);
-    const p = {
+    const p: Projection = {
       thread: {
         id: input.threadId,
         projectId: "p",
+        title: "Fixture",
         worktreePath: "/worktrees/" + input.threadId,
       },
       runs: [
@@ -69,19 +77,27 @@ class FakeT3 extends EventEmitter {
     }
     return { projection: p };
   }
-  async dispatch(command) {
+  async dispatch(command: OrchestrationCommand) {
+    assert.equal(command.type, "message.dispatch");
+    if (command.type !== "message.dispatch") throw Error("Unexpected command");
     this.dispatches.push(command);
-    const p = this.projections.get(command.threadId);
+    const p = this.projection(command.threadId);
     p.runs.push({
       id: "run-" + command.messageId,
       userMessageId: command.messageId,
       status: "running",
     });
   }
-  async snapshot(id) {
+  async snapshot(id: string) {
     const p = this.projections.get(id);
     if (!p) throw Error("Thread not found");
     return p;
+  }
+  projection(id: string | null | undefined) {
+    assert.ok(id);
+    const projection = this.projections.get(id);
+    assert.ok(projection);
+    return projection;
   }
   close() {}
 }
@@ -91,8 +107,8 @@ function fixture() {
   const t3 = new FakeT3();
   const scheduler = new Scheduler(store, t3, () => {});
   scheduler.reports.enqueue = () => {};
-  const add = (id, threadId = null) =>
-    store.put("tasks", {
+  const add = (id: string, threadId: string | null = null) =>
+    seed(store, "tasks", {
       id,
       title: id,
       prompt: "Work",
@@ -121,10 +137,14 @@ test("SQLite persists task and original attachment bytes across reopen", () => {
   const image = store.saveImage(
     Buffer.from("attachment bytes").toString("base64"),
   );
-  store.put("tasks", { id: "saved", prompt: "Original", attachments: [image] });
+  seed(store, "tasks", {
+    id: "saved",
+    prompt: "Original",
+    attachments: [image],
+  });
   store.close();
   store = new Store(dir);
-  assert.equal(store.get("tasks", "saved").prompt, "Original");
+  assert.equal(store.require("tasks", "saved").prompt, "Original");
   assert.equal(store.image(image.id).toString(), "attachment bytes");
   store.close();
   rmSync(dir, { recursive: true, force: true });
@@ -137,13 +157,13 @@ test("project cap limits simultaneous work and different threads get separate wo
     f.add("t3");
     await f.scheduler.tick();
     assert.equal(f.t3.launches.length, 2);
-    assert.equal(f.store.get("tasks", "t3").status, "todo");
+    assert.equal(f.store.require("tasks", "t3").status, "todo");
     const running = f.store.list("attempts");
     assert.notEqual(running[0].workspace, running[1].workspace);
-    f.t3.projections.get(running[0].threadId).runs[0].status = "completed";
+    f.t3.projection(running[0].threadId).runs[0].status = "completed";
     await f.scheduler.tick();
-    assert.equal(f.store.get("tasks", "t1").status, "review");
-    assert.equal(f.store.get("tasks", "t3").status, "doing");
+    assert.equal(f.store.require("tasks", "t1").status, "review");
+    assert.equal(f.store.require("tasks", "t3").status, "doing");
   } finally {
     f.close();
   }
@@ -152,7 +172,12 @@ test("tasks in the same existing thread are admitted sequentially", async () => 
   const f = fixture();
   try {
     f.t3.projections.set("same", {
-      thread: { id: "same", projectId: "p", worktreePath: "/same" },
+      thread: {
+        id: "same",
+        projectId: "p",
+        title: "Same",
+        worktreePath: "/same",
+      },
       runs: [],
       turnItems: [],
       messages: [],
@@ -165,11 +190,11 @@ test("tasks in the same existing thread are admitted sequentially", async () => 
     await f.scheduler.tick();
     assert.equal(f.t3.dispatches.length, 1);
     assert.equal(f.t3.dispatches[0].dispatchMode.type, "queue_after_active");
-    f.t3.projections.get("same").runs[0].status = "completed";
+    f.t3.projection("same").runs[0].status = "completed";
     await f.scheduler.tick();
     assert.equal(f.t3.dispatches.length, 2);
-    assert.equal(f.store.get("tasks", "t1").status, "review");
-    assert.equal(f.store.get("tasks", "t2").status, "doing");
+    assert.equal(f.store.require("tasks", "t1").status, "review");
+    assert.equal(f.store.require("tasks", "t2").status, "doing");
   } finally {
     f.close();
   }
@@ -194,15 +219,15 @@ test("active child work keeps a completed parent attempt out of Review", async (
     f.add("t1");
     await f.scheduler.tick();
     const a = f.store.list("attempts")[0];
-    const p = f.t3.projections.get(a.threadId);
+    const p = f.t3.projection(a.threadId);
     p.runs[0].status = "completed";
-    p.subagents = [{ id: "child", runId: p.runs[0].id, status: "running" }];
+    p.subagents = [{ runId: p.runs[0].id, status: "running" }];
     await f.scheduler.tick();
-    assert.equal(f.store.get("tasks", "t1").status, "doing");
+    assert.equal(f.store.require("tasks", "t1").status, "doing");
     assert.equal(f.store.list("attempts")[0].state, "waiting");
     p.subagents[0].status = "completed";
     await f.scheduler.tick();
-    assert.equal(f.store.get("tasks", "t1").status, "review");
+    assert.equal(f.store.require("tasks", "t1").status, "review");
   } finally {
     f.close();
   }
@@ -210,7 +235,7 @@ test("active child work keeps a completed parent attempt out of Review", async (
 test("compiled prompt snapshots epic context while preserving task prompt", async () => {
   const f = fixture();
   try {
-    f.store.put("groups", {
+    seed(f.store, "groups", {
       id: "g",
       context: "Version one",
       contextVersion: 1,
@@ -227,7 +252,7 @@ test("compiled prompt snapshots epic context while preserving task prompt", asyn
     assert.match(a.compiledPrompt, /Version one/);
     assert.doesNotMatch(a.compiledPrompt, /Version two/);
     assert.equal(a.contextVersion, 1);
-    assert.equal(f.store.get("tasks", t.id).prompt, "Work");
+    assert.equal(f.store.require("tasks", t.id).prompt, "Work");
   } finally {
     f.close();
   }
@@ -236,12 +261,16 @@ test("compiled prompt snapshots epic context while preserving task prompt", asyn
 test("task-level keys serialize a future thread while different keys in the same epic run in parallel", async () => {
   const f = fixture();
   try {
-    f.store.put("groups", { id: "epic", context: "Shared", contextVersion: 1 });
+    seed(f.store, "groups", {
+      id: "epic",
+      context: "Shared",
+      contextVersion: 1,
+    });
     for (const [id, key] of [
       ["t1", "api"],
       ["t2", "api"],
       ["t3", "ui"],
-    ]) {
+    ] as const) {
       f.add(id);
       f.store.transaction(() =>
         f.store.update("tasks", id, {
@@ -250,21 +279,24 @@ test("task-level keys serialize a future thread while different keys in the same
         }),
       );
     }
-    const first = f.store.get("tasks", "t1");
-    assert.equal(first.threadId, f.store.get("tasks", "t2").threadId);
-    assert.notEqual(first.threadId, f.store.get("tasks", "t3").threadId);
+    const first = f.store.require("tasks", "t1");
+    assert.equal(first.threadId, f.store.require("tasks", "t2").threadId);
+    assert.notEqual(first.threadId, f.store.require("tasks", "t3").threadId);
     assert.equal(f.t3.launches.length, 0);
     await f.scheduler.tick();
     assert.equal(f.t3.launches.length, 2);
-    assert.equal(f.store.get("tasks", "t2").status, "todo");
-    assert.equal(f.store.get("groups", "epic").threadId, undefined);
-    f.t3.projections.get(first.threadId).runs[0].status = "completed";
+    assert.equal(f.store.require("tasks", "t2").status, "todo");
+    assert.equal(
+      Reflect.get(f.store.require("groups", "epic"), "threadId"),
+      undefined,
+    );
+    f.t3.projection(first.threadId).runs[0].status = "completed";
     await f.scheduler.tick();
     assert.equal(f.t3.launches.length, 2);
     assert.equal(f.t3.dispatches.length, 1);
     assert.equal(f.t3.dispatches[0].threadId, first.threadId);
-    assert.equal(f.store.get("tasks", "t1").status, "review");
-    assert.equal(f.store.get("tasks", "t2").status, "doing");
+    assert.equal(f.store.require("tasks", "t1").status, "review");
+    assert.equal(f.store.require("tasks", "t2").status, "doing");
     assert.equal(
       f.store.list("attempts").filter((a) => a.threadId === first.threadId)[0]
         .workspace,
@@ -288,7 +320,7 @@ test("a future thread binding survives lost launch response and scheduler restar
     }
     f.t3.uncertain = true;
     await f.scheduler.tick();
-    assert.equal(f.store.get("tasks", "t2").status, "todo");
+    assert.equal(f.store.require("tasks", "t2").status, "todo");
     const original = f.store.list("attempts")[0];
     f.scheduler.stop();
     f.scheduler = new Scheduler(f.store, f.t3, () => {});
@@ -296,8 +328,8 @@ test("a future thread binding survives lost launch response and scheduler restar
     await f.scheduler.tick();
     assert.equal(f.t3.launches.length, 1);
     assert.equal(f.store.list("attempts")[0].commandId, original.commandId);
-    assert.ok(f.store.get("threadTargets", target.threadId).materializedAt);
-    f.t3.projections.get(target.threadId).runs[0].status = "completed";
+    assert.ok(f.store.require("threadTargets", target.threadId).materializedAt);
+    f.t3.projection(target.threadId).runs[0].status = "completed";
     await f.scheduler.tick();
     assert.equal(f.t3.launches.length, 1);
     assert.equal(f.t3.dispatches[0].threadId, target.threadId);
@@ -317,18 +349,18 @@ test("an unacknowledged failure holds the named thread queue and a missing mater
       f.store.update("tasks", id, target);
     }
     await f.scheduler.tick();
-    f.t3.projections.get(target.threadId).runs[0].status = "failed";
+    f.t3.projection(target.threadId).runs[0].status = "failed";
     await f.scheduler.tick();
-    assert.equal(f.store.get("tasks", "t1").status, "failed");
-    assert.equal(f.store.get("tasks", "t2").status, "todo");
+    assert.equal(f.store.require("tasks", "t1").status, "failed");
+    assert.equal(f.store.require("tasks", "t2").status, "todo");
     assert.equal(f.t3.dispatches.length, 0);
     f.store.update("tasks", "t1", { failureAcknowledged: true });
-    f.t3.projections.delete(target.threadId);
+    f.t3.projections.delete(target.threadId!);
     await f.scheduler.refresh();
     await f.scheduler.tick();
     assert.equal(f.t3.launches.length, 1);
     assert.equal(
-      f.store.get("tasks", "t2").waitReason,
+      f.store.require("tasks", "t2").waitReason,
       "Target thread is missing or archived",
     );
   } finally {
@@ -351,8 +383,8 @@ test("definitive pre-launch failure can be retried using the reserved thread ID"
       throw Error("Failed to launch: invalid base ref");
     };
     await f.scheduler.tick();
-    assert.equal(f.store.get("tasks", "t1").status, "failed");
-    assert.equal(f.store.get("tasks", "t2").status, "todo");
+    assert.equal(f.store.require("tasks", "t1").status, "failed");
+    assert.equal(f.store.require("tasks", "t2").status, "todo");
     f.t3.launch = launch;
     f.store.update("tasks", "t1", {
       status: "todo",
@@ -361,7 +393,7 @@ test("definitive pre-launch failure can be retried using the reserved thread ID"
     await f.scheduler.tick();
     assert.equal(f.t3.launches.length, 1);
     assert.equal(f.t3.launches[0].threadId, target.threadId);
-    assert.equal(f.store.get("tasks", "t2").status, "todo");
+    assert.equal(f.store.require("tasks", "t2").status, "todo");
   } finally {
     f.close();
   }
@@ -376,15 +408,15 @@ test("an independent new-thread task can retry a failure before its thread exist
       throw Error("Failed to launch: invalid base ref");
     };
     await f.scheduler.tick();
-    assert.equal(f.store.get("tasks", "t1").status, "failed");
-    assert.equal(f.store.get("tasks", "t1").threadId, null);
+    assert.equal(f.store.require("tasks", "t1").status, "failed");
+    assert.equal(f.store.require("tasks", "t1").threadId, null);
     f.t3.launch = launch;
     f.store.update("tasks", "t1", {
       status: "todo",
       failureAcknowledged: true,
     });
     await f.scheduler.tick();
-    assert.equal(f.store.get("tasks", "t1").status, "doing");
+    assert.equal(f.store.require("tasks", "t1").status, "doing");
     assert.equal(f.t3.launches.length, 1);
   } finally {
     f.close();
@@ -394,7 +426,7 @@ test("an independent new-thread task can retry a failure before its thread exist
 test("priority selects the next ready task without interrupting active work", async () => {
   const f = fixture();
   try {
-    f.store.put("settings", { id: "project:p", concurrencyLimit: 1 });
+    seed(f.store, "settings", { id: "project:p", concurrencyLimit: 1 });
     f.add("t1");
     await f.scheduler.tick();
     for (const [id, priority] of [
@@ -403,7 +435,7 @@ test("priority selects the next ready task without interrupting active work", as
       ["t4", "urgent"],
       ["t5", "none"],
       ["t6", "normal"],
-    ]) {
+    ] as const) {
       f.add(id);
       f.store.update("tasks", id, { priority });
     }
@@ -413,10 +445,10 @@ test("priority selects the next ready task without interrupting active work", as
       const active = f.store
         .list("attempts")
         .find((a) => a.state === "running");
-      f.t3.projections.get(active.threadId).runs.at(-1).status = "completed";
+      f.t3.projection(active!.threadId).runs.at(-1)!.status = "completed";
       await f.scheduler.tick();
       assert.equal(
-        f.store.list("attempts").find((a) => a.state === "running").taskId,
+        f.store.list("attempts").find((a) => a.state === "running")!.taskId,
         expected,
       );
     }
@@ -440,18 +472,18 @@ test("a blocked urgent task waits without taking a slot, then reuses its blocker
     });
     await f.scheduler.tick();
     assert.equal(f.t3.launches.length, 2);
-    assert.equal(f.store.get("tasks", "t2").status, "todo");
-    assert.match(f.store.get("tasks", "t2").waitReason, /Blocked by/);
+    assert.equal(f.store.require("tasks", "t2").status, "todo");
+    assert.match(f.store.require("tasks", "t2").waitReason!, /Blocked by/);
     assert.equal(
       f.store.list("attempts").some((a) => a.taskId === "t2"),
       false,
     );
-    f.t3.projections.get(target.threadId).runs[0].status = "completed";
+    f.t3.projection(target.threadId).runs[0].status = "completed";
     await f.scheduler.tick();
-    assert.equal(f.store.get("tasks", "t1").status, "review");
-    assert.equal(f.store.get("tasks", "t2").status, "doing");
+    assert.equal(f.store.require("tasks", "t1").status, "review");
+    assert.equal(f.store.require("tasks", "t2").status, "doing");
     assert.equal(f.t3.dispatches[0].threadId, target.threadId);
-    assert.equal(f.store.get("tasks", "t2").waitReason, null);
+    assert.equal(f.store.require("tasks", "t2").waitReason, null);
   } finally {
     f.close();
   }
@@ -466,7 +498,7 @@ test("all blockers must reach Review or Done; failed, cancelled, paused and miss
     "missing",
     "review",
     "done",
-  ]) {
+  ] as const) {
     const f = fixture();
     try {
       f.add("t1");
@@ -477,7 +509,7 @@ test("all blockers must reach Review or Done; failed, cancelled, paused and miss
       }
       await f.scheduler.tick();
       assert.equal(
-        f.store.get("tasks", "t1").status,
+        f.store.require("tasks", "t1").status,
         ["review", "done"].includes(status) ? "doing" : "todo",
         status,
       );
@@ -497,10 +529,10 @@ test("all blockers must reach Review or Done; failed, cancelled, paused and miss
       });
     }
     await f.scheduler.tick();
-    assert.equal(f.store.get("tasks", "t1").status, "todo");
+    assert.equal(f.store.require("tasks", "t1").status, "todo");
     f.store.update("tasks", "b", { status: "done" });
     await f.scheduler.tick();
-    assert.equal(f.store.get("tasks", "t1").status, "doing");
+    assert.equal(f.store.require("tasks", "t1").status, "doing");
   } finally {
     f.close();
   }

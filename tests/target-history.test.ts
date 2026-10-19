@@ -1,3 +1,6 @@
+import { stateFixture, taskFixture } from "./helpers.js";
+import { seed } from "./helpers.js";
+import { tcpPort } from "./helpers.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -13,41 +16,46 @@ import {
   recentThreads,
 } from "../src/task-targets.js";
 
-const state = () => ({
-  projects: [{ id: "a" }, { id: "b" }, { id: "empty" }],
-  threads: [
-    {
-      id: "a-old",
-      projectId: "a",
-      latestUserMessageAt: "2026-10-10T10:00:00Z",
-      updatedAt: "2026-10-15T10:00:00Z",
-    },
-    { id: "a-last", projectId: "a", lastVisitedAt: "2026-10-12T10:00:00Z" },
-    {
-      id: "b-last",
-      projectId: "b",
-      latestUserAuthoredMessageAt: "2026-10-13T10:00:00Z",
-    },
-    {
-      id: "child",
-      projectId: "a",
-      updatedAt: "2026-10-20T10:00:00Z",
-      lineage: { relationshipToParent: "subagent" },
-    },
-    {
-      id: "archived",
-      projectId: "a",
-      updatedAt: "2026-10-20T10:00:00Z",
-      archivedAt: "2026-10-20",
-    },
-  ],
-  tasks: [],
-  groups: [
-    { id: "a-epic", projectId: "a", status: "active" },
-    { id: "b-epic", projectId: "b", status: "active" },
-  ],
-  settings: { id: "app" },
-});
+const state = () =>
+  stateFixture({
+    projects: [
+      { id: "a", title: "a", workspaceRoot: "/fixture/a" },
+      { id: "b", title: "b", workspaceRoot: "/fixture/b" },
+      { id: "empty", title: "empty", workspaceRoot: "/fixture/empty" },
+    ],
+    threads: [
+      {
+        id: "a-old",
+        projectId: "a",
+        latestUserMessageAt: "2026-10-10T10:00:00Z",
+        updatedAt: "2026-10-15T10:00:00Z",
+      },
+      { id: "a-last", projectId: "a", lastVisitedAt: "2026-10-12T10:00:00Z" },
+      {
+        id: "b-last",
+        projectId: "b",
+        latestUserAuthoredMessageAt: "2026-10-13T10:00:00Z",
+      },
+      {
+        id: "child",
+        projectId: "a",
+        updatedAt: "2026-10-20T10:00:00Z",
+        lineage: { relationshipToParent: "subagent" },
+      },
+      {
+        id: "archived",
+        projectId: "a",
+        updatedAt: "2026-10-20T10:00:00Z",
+        archivedAt: "2026-10-20",
+      },
+    ],
+    tasks: [],
+    groups: [
+      { id: "a-epic", projectId: "a", status: "active" },
+      { id: "b-epic", projectId: "b", status: "active" },
+    ],
+    settings: { id: "app" },
+  });
 test("sorts by user activity and restores project-scoped selections", () => {
   const s = state();
   assert.deepEqual(
@@ -100,17 +108,20 @@ test("preserves New thread and No epic while recovering the thread created by a 
     "2026-10-18T10:00:00Z",
   );
   assert.deepEqual(projectTargets(s, "a"), { threadId: "", groupId: "" });
-  s.tasks.push({
-    projectId: "a",
-    threadId: "a-last",
-    groupId: null,
-    createdAt: "2026-10-16T10:00:00Z",
-  });
+  s.tasks.push(
+    taskFixture({
+      projectId: "a",
+      threadId: "a-last",
+      groupId: null,
+      createdAt: "2026-10-16T10:00:00Z",
+    }),
+  );
   assert.equal(projectTargets(s, "a").threadId, "a-last");
 });
 test("legacy defaults, invalid references and empty projects remain safe", () => {
   const s = state();
   s.settings = {
+    ...s.settings,
     lastProjectId: "a",
     lastThreadId: "a-old",
     lastGroupId: "b-epic",
@@ -124,11 +135,13 @@ test("legacy defaults, invalid references and empty projects remain safe", () =>
   });
   assert.deepEqual(projectTargets(s, "a"), { threadId: "a-last", groupId: "" });
   assert.deepEqual(projectTargets(s, "empty"), { threadId: "", groupId: "" });
-  s.tasks.push({
-    projectId: "b",
-    groupId: "b-epic",
-    createdAt: "2026-10-13T12:00:00Z",
-  });
+  s.tasks.push(
+    taskFixture({
+      projectId: "b",
+      groupId: "b-epic",
+      createdAt: "2026-10-13T12:00:00Z",
+    }),
+  );
   assert.equal(projectTargets(s, "b").groupId, "b-epic");
 });
 test("selection API persists separate project histories and rejects foreign targets", async () => {
@@ -138,9 +151,9 @@ test("selection API persists separate project histories and rejects foreign targ
   const s = state();
   runtime.scheduler.projects = s.projects;
   runtime.scheduler.threads = s.threads;
-  for (const group of s.groups) runtime.store.put("groups", group);
-  const origin = "http://127.0.0.1:" + runtime.server.address().port;
-  const select = (input) =>
+  for (const group of s.groups) seed(runtime.store, "groups", group);
+  const origin = "http://127.0.0.1:" + tcpPort(runtime.server);
+  const select = (input: import("../shared/types.js").SelectionInput) =>
     fetch(origin + "/api/selection", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -188,8 +201,8 @@ test("selection API persists separate project histories and rejects foreign targ
     assert.equal(task.status, 201);
     const settings = runtime.store.settings("app");
     assert.equal(settings.lastProjectId, "b");
-    assert.equal(settings.targetHistory.a.lastThreadId, "a-old");
-    assert.equal(settings.targetHistory.b.lastGroupId, "b-epic");
+    assert.equal(settings.targetHistory!.a.lastThreadId, "a-old");
+    assert.equal(settings.targetHistory!.b.lastGroupId, "b-epic");
     runtime.close();
     reopened = new Store(directory);
     assert.deepEqual(

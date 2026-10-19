@@ -35,7 +35,7 @@ test("local connection issues a scoped session through the configured native T3 
       directory,
       process.platform === "win32" ? "t3.cmd" : "t3-cli",
     );
-    const quote = (text) => "'" + text.replaceAll("'", "'\\''") + "'";
+    const quote = (text: string) => "'" + text.replaceAll("'", "'\\''") + "'";
     writeFileSync(
       command,
       process.platform === "win32"
@@ -69,7 +69,7 @@ test("local connection issues a scoped session through the configured native T3 
     for (const [name, value] of [
       ["TASKLINE_T3_HOME", previous.home],
       ["TASKLINE_T3_PATH", previous.cli],
-    ]) {
+    ] as const) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }

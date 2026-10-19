@@ -1,3 +1,5 @@
+import { seed } from "./helpers.js";
+import { tcpPort } from "./helpers.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -11,19 +13,19 @@ test("legacy epics inherit only an unambiguous project", () => {
   let store = new Store(dir);
   try {
     for (const id of ["single", "mixed", "empty"])
-      store.put("groups", { id, contextVersion: 3 });
+      seed(store, "groups", { id, contextVersion: 3 });
     for (const [id, groupId, projectId] of [
       ["a", "single", "p"],
       ["b", "mixed", "p"],
       ["c", "mixed", "q"],
-    ])
-      store.put("tasks", { id, groupId, projectId });
+    ] as const)
+      seed(store, "tasks", { id, groupId, projectId });
     store.close();
     store = new Store(dir);
-    assert.equal(store.get("groups", "single").projectId, "p");
-    assert.equal(store.get("groups", "single").contextVersion, 3);
-    assert.ok(!store.get("groups", "mixed").projectId);
-    assert.ok(!store.get("groups", "empty").projectId);
+    assert.equal(store.require("groups", "single").projectId, "p");
+    assert.equal(store.require("groups", "single").contextVersion, 3);
+    assert.ok(!store.require("groups", "mixed").projectId);
+    assert.ok(!store.require("groups", "empty").projectId);
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -34,9 +36,12 @@ test("API enforces project ownership on epic creation and task assignment", asyn
   const dir = mkdtempSync(join(tmpdir(), "taskline-epic-api-"));
   const runtime = await startServer({ port: 0, dataDir: dir });
   runtime.scheduler.stop();
-  runtime.scheduler.projects = [{ id: "p" }, { id: "q" }];
-  const origin = "http://127.0.0.1:" + runtime.server.address().port;
-  const request = async (path, body, method = "POST") => {
+  runtime.scheduler.projects = [
+    { id: "p", title: "P", workspaceRoot: "/p" },
+    { id: "q", title: "Q", workspaceRoot: "/q" },
+  ];
+  const origin = "http://127.0.0.1:" + tcpPort(runtime.server);
+  const request = async (path: string, body?: unknown, method = "POST") => {
     const res = await fetch(origin + "/api" + path, {
       method,
       headers: { "content-type": "application/json" },

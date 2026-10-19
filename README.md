@@ -67,17 +67,17 @@ On macOS, enable **Taskline** in **System Settings → Privacy & Security → Sc
 
 ## CLI
 
-The desktop app must be running. The CLI requires **Node.js 24+** and talks to the same local API as the board.
+Taskline installs the `taskline` command automatically on its first launch and keeps it pointed at the current application. It uses the app's bundled runtime, so a separate Node.js installation is not required.
 
-Download `taskline.mjs` and `install-cli.mjs` from the same release into one directory, then run:
+Open a new terminal after the first launch, then run:
 
 ```sh
-node install-cli.mjs
+taskline --help
 ```
 
-The installer prints the command directory to add to your `PATH`. It creates `taskline` on macOS or `taskline.cmd` on Windows and refuses to overwrite unrelated files. Keep the downloaded files in a permanent location. Both scripts are also bundled in the app's resources directory; custom installations can set `TASKLINE_CLI_RESOURCE` to the CLI file before running the installer.
+The desktop app must be running to manage the board. On macOS and Linux, Taskline installs into `~/.local/bin` and adds it to your shell startup configuration. On Windows, it installs a per-user command and adds its directory to your user `PATH`. No administrator access is required. Existing unrelated commands are never overwritten; installation errors appear in Settings.
 
-Without installing a command, use `node /path/to/taskline.mjs --help`. Add `--json` to commands for structured output.
+Add `--json` to commands for structured output.
 
 ### Plan a backlog
 

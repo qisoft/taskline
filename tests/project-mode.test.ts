@@ -1,22 +1,23 @@
+import { seed } from "./helpers.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EventEmitter } from "node:events";
+import { T3Client } from "../server/t3.js";
+import { mockProjectCreation } from "./helpers.js";
 import { Store } from "../server/store.js";
 import { Scheduler } from "../server/scheduler.js";
 import { ProjectService } from "../server/projects.js";
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "taskline-mode-"));
   const store = new Store(directory);
-  const t3 = new EventEmitter();
-  t3.config = { token: "fixture" };
+  const t3 = new T3Client({ token: "fixture" });
   t3.close = () => {};
   const scheduler = new Scheduler(store, t3, () => {});
   scheduler.projects = [
-    { id: "p", workspaceRoot: "/p" },
-    { id: "q", workspaceRoot: "/q" },
+    { id: "p", title: "P", workspaceRoot: "/p" },
+    { id: "q", title: "Q", workspaceRoot: "/q" },
   ];
   scheduler.connected = true;
   scheduler.lastRefresh = Date.now();
@@ -36,8 +37,8 @@ function fixture() {
 test("Paused blocks new project starts while reconciling running tasks and leaving other projects active", async () => {
   const f = fixture();
   try {
-    const started = [],
-      reconciled = [];
+    const started: string[] = [],
+      reconciled: string[] = [];
     f.scheduler.admit = async (t) => {
       started.push(t.id);
       f.store.update("tasks", t.id, { status: "doing" });
@@ -45,7 +46,7 @@ test("Paused blocks new project starts while reconciling running tasks and leavi
     f.scheduler.reconcile = async (a) => {
       reconciled.push(a.id);
     };
-    f.store.put("attempts", {
+    seed(f.store, "attempts", {
       id: "running",
       projectId: "p",
       state: "running",
@@ -53,8 +54,8 @@ test("Paused blocks new project starts while reconciling running tasks and leavi
     for (const [id, projectId] of [
       ["p-new", "p"],
       ["q-new", "q"],
-    ])
-      f.store.put("tasks", {
+    ] as const)
+      seed(f.store, "tasks", {
         id,
         projectId,
         status: "todo",
@@ -65,12 +66,15 @@ test("Paused blocks new project starts while reconciling running tasks and leavi
     await f.scheduler.tick();
     assert.deepEqual(started, ["q-new"]);
     assert.deepEqual(reconciled, ["running"]);
-    assert.equal(f.store.get("tasks", "p-new").waitReason, "Project is paused");
+    assert.equal(
+      f.store.require("tasks", "p-new").waitReason,
+      "Project is paused",
+    );
     f.service.update("p", { mode: "active" });
     await f.scheduler.tick();
     assert.deepEqual(started, ["q-new", "p-new"]);
-    assert.equal(f.store.get("tasks", "p-new").waitReason, null);
-    assert.equal(f.store.get("attempts", "running").state, "running");
+    assert.equal(f.store.require("tasks", "p-new").waitReason, null);
+    assert.equal(f.store.require("attempts", "running").state, "running");
     f.service.update("p", { mode: "paused" });
     f.store.close();
     f.store = new Store(f.directory);
@@ -83,9 +87,9 @@ test("Paused blocks new project starts while reconciling running tasks and leavi
 test("project creation persists Paused before publishing to T3 and preserves it on unknown outcomes", async () => {
   const f = fixture();
   try {
-    let command;
-    f.t3.call = async (tag, input) => {
-      assert.equal(tag, "projects.mutate");
+    let command:
+      import("../shared/types.js").T3RpcRequests["projects.mutate"] | undefined;
+    mockProjectCreation(f.t3, async (input) => {
       assert.equal(
         f.store.settings("project:" + input.projectId).autoStart,
         false,
@@ -96,7 +100,7 @@ test("project creation persists Paused before publishing to T3 and preserves it 
         title: input.title,
         workspaceRoot: input.workspaceRoot,
       };
-    };
+    });
     const workspace = join(f.directory, "workspace");
     mkdirSync(join(workspace, ".git"), { recursive: true });
     writeFileSync(join(workspace, ".git", "HEAD"), "ref: refs/heads/trunk\n");
@@ -109,7 +113,7 @@ test("project creation persists Paused before publishing to T3 and preserves it 
     });
     assert.equal(project.mode, "paused");
     assert.equal(project.policy.baseRef, "trunk");
-    assert.equal(command.type, "project.create");
+    assert.equal(command!.type, "project.create");
     f.t3.call = async () => {
       throw Error("T3 disconnected");
     };

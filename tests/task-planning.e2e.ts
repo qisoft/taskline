@@ -1,3 +1,6 @@
+import { mockProjectCreation } from "./helpers.js";
+import { tcpPort } from "./helpers.js";
+import type { ElectronApplication } from "@playwright/test";
 import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
@@ -13,20 +16,13 @@ test("native board, capture composer and bundled CLI share priorities and blocke
   runtime.scheduler.stop();
   runtime.scheduler.signal = () => {};
   runtime.scheduler.reports.enqueue = () => {};
-  runtime.scheduler.t3.call = async (tag, input) => {
-    expect(tag).toBe("projects.mutate");
-    return {
-      id: input.projectId,
-      title: input.title,
-      workspaceRoot: input.workspaceRoot,
-    };
-  };
-  const origin = "http://127.0.0.1:" + runtime.server.address().port;
+  mockProjectCreation(runtime.scheduler.t3);
+  const origin = "http://127.0.0.1:" + tcpPort(runtime.server);
   const executable =
     process.env.TASKLINE_TEST_APP ||
     "/Applications/Taskline.app/Contents/MacOS/Taskline";
   const bundledCli = resolve(dirname(executable), "../Resources/taskline.mjs");
-  const cli = async (args) =>
+  const cli = async (args: string[]) =>
     JSON.parse(
       (
         await exec(process.execPath, [bundledCli, ...args, "--json"], {
@@ -34,11 +30,11 @@ test("native board, capture composer and bundled CLI share priorities and blocke
         })
       ).stdout,
     );
-  const env = {
+  const env: Record<string, string> = {
     ...process.env,
     TASKLINE_E2E: "1",
     TASKLINE_DATA_DIR: directory,
-    TASKLINE_PORT: String(runtime.server.address().port),
+    TASKLINE_PORT: String(tcpPort(runtime.server)),
   };
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.TASKLINE_UI_ORIGIN;
@@ -48,7 +44,7 @@ test("native board, capture composer and bundled CLI share priorities and blocke
       args: ["--user-data-dir=" + join(directory, "electron")],
       env,
     });
-  let app;
+  let app!: ElectronApplication;
   try {
     const project = await cli([
       "project",
@@ -106,7 +102,7 @@ test("native board, capture composer and bundled CLI share priorities and blocke
       "Base API",
     ]);
     const ui = (await cli(["task", "list", "--project", project.id])).find(
-      (t) => t.title === "UI dependent",
+      (t: import("../shared/types.js").Task) => t.title === "UI dependent",
     );
     expect(ui.priority).toBe("urgent");
     expect(ui.blockedBy).toEqual([base.id]);
@@ -190,13 +186,19 @@ test("native board, capture composer and bundled CLI share priorities and blocke
         async () =>
           runtime.store
             .list("tasks")
-            .find((t) => t.title === "Captured dependent")?.priority,
+            .find(
+              (t: import("../shared/types.js").Task) =>
+                t.title === "Captured dependent",
+            )?.priority,
       )
       .toBe("high");
     const captured = runtime.store
       .list("tasks")
-      .find((t) => t.title === "Captured dependent");
-    expect(captured.blockedBy).toEqual([cliTask.id]);
+      .find(
+        (t: import("../shared/types.js").Task) =>
+          t.title === "Captured dependent",
+      );
+    expect(captured!.blockedBy).toEqual([cliTask.id]);
     expect(runtime.store.list("attempts")).toHaveLength(0);
     expect((await cli(["project", "show", project.id])).mode).toBe("paused");
   } finally {

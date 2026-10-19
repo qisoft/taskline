@@ -1,3 +1,6 @@
+import { seed } from "./helpers.js";
+import { tcpPort } from "./helpers.js";
+import type { ElectronApplication, Page } from "@playwright/test";
 import { test, expect, _electron as electron } from "@playwright/test";
 import { createServer } from "node:net";
 import { deflateSync } from "node:zlib";
@@ -6,10 +9,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "../server/store.js";
 
-let app, window, directory, imagePath;
+let app: ElectronApplication,
+  window: Page,
+  directory: string,
+  imagePath: string;
 const title = "Image viewer fixture";
-function fixturePng(width, height) {
-  const chunk = (type, bytes) => {
+function fixturePng(width: number, height: number) {
+  const chunk = (type: string, bytes: Buffer) => {
     const name = Buffer.from(type),
       length = Buffer.alloc(4),
       checksum = Buffer.alloc(4);
@@ -50,6 +56,7 @@ test.beforeAll(async () => {
   const input = store.saveImage(png.toString("base64"), "Input screenshot.png");
   const output = {
     ...store.saveImage(png.toString("base64"), "Result screenshot.png"),
+    sha256: "fixture-hash",
     sources: [{ reference: "fixture.png", kind: "file", evidenceIds: [] }],
   };
   const report = {
@@ -58,9 +65,10 @@ test.beforeAll(async () => {
     questions: [],
     validation: [],
     remainingWork: [],
+    sourceRefs: [],
   };
   const now = new Date().toISOString();
-  store.put("tasks", {
+  seed(store, "tasks", {
     id: "viewer-fixture",
     title,
     prompt: "View the fixture screenshot.",
@@ -76,7 +84,7 @@ test.beforeAll(async () => {
     report,
     reportState: "ready",
   });
-  store.put("attempts", {
+  seed(store, "attempts", {
     id: "viewer-attempt",
     taskId: "viewer-fixture",
     state: "completed",
@@ -90,10 +98,12 @@ test.beforeAll(async () => {
   });
   store.close();
   const portServer = createServer();
-  await new Promise((resolve) => portServer.listen(0, "127.0.0.1", resolve));
-  const port = portServer.address().port;
-  await new Promise((resolve) => portServer.close(resolve));
-  const env = {
+  await new Promise<void>((resolve) =>
+    portServer.listen(0, "127.0.0.1", resolve),
+  );
+  const port = tcpPort(portServer);
+  await new Promise<void>((resolve) => portServer.close(() => resolve()));
+  const env: Record<string, string> = {
     ...process.env,
     TASKLINE_E2E: "1",
     TASKLINE_DATA_DIR: directory,
@@ -155,7 +165,7 @@ test.beforeEach(async () => {
 test.afterAll(async () => {
   if (app) {
     const child = app.process();
-    let timer;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
         app.close(),
@@ -171,14 +181,14 @@ test.afterAll(async () => {
   }
   if (directory) rmSync(directory, { recursive: true, force: true });
 });
-const viewer = (page) =>
+const viewer = (page: Page) =>
   page.getByRole("dialog", { name: "Image viewer", exact: true });
 const assertNoBrowser = async () =>
   expect(await app.evaluate(() => globalThis.externalUrls)).toEqual([]);
 
 // CDP key dispatch can be dropped between packaged apps on hosted Intel Macs.
 // Exercise Electron's native input path against the actual focused webContents.
-async function pressNativeKey(page, keyCode) {
+async function pressNativeKey(page: Page, keyCode: string) {
   const nativeWindow = await app.browserWindow(page);
   await expect
     .poll(() => nativeWindow.evaluate((w) => w.isFocused()))
@@ -299,7 +309,7 @@ test("previews attachments in board and global capture composers without losing 
   await expect(composer.locator(".attachment-preview")).toHaveCount(0);
   await composer.getByRole("button", { name: "Close", exact: true }).click();
   const popupPromise = app.waitForEvent("window");
-  await window.evaluate(() => window.taskline.captureText());
+  await window.evaluate(() => globalThis.window.taskline!.captureText());
   const capture = await popupPromise;
   await capture.getByLabel("Task prompt").fill("Keep the global capture draft");
   await capture.getByLabel("Attach screenshot").setInputFiles(imagePath);

@@ -1,3 +1,6 @@
+import { seed } from "./helpers.js";
+import { tcpPort } from "./helpers.js";
+import type { ElectronApplication, Page } from "@playwright/test";
 import { test, expect, _electron as electron } from "@playwright/test";
 import { createServer } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -12,7 +15,7 @@ test("board shortcut and Dock preference apply immediately and survive relaunch"
   const originalShortcut = "Control+Alt+Shift+F8";
   const textShortcut = "Control+Alt+Shift+F9";
   const store = new Store(directory);
-  store.put("settings", {
+  seed(store, "settings", {
     id: "app",
     boardShortcut: originalShortcut,
     textShortcut,
@@ -20,14 +23,16 @@ test("board shortcut and Dock preference apply immediately and survive relaunch"
   });
   store.close();
   const listener = createServer();
-  await new Promise((resolve) => listener.listen(0, "127.0.0.1", resolve));
-  const port = listener.address().port;
-  await new Promise((resolve) => listener.close(resolve));
+  await new Promise<void>((resolve) =>
+    listener.listen(0, "127.0.0.1", resolve),
+  );
+  const port = tcpPort(listener);
+  await new Promise<void>((resolve) => listener.close(() => resolve()));
   const origin = "http://127.0.0.1:" + port;
   const executable =
     process.env.TASKLINE_TEST_APP ||
     "/Applications/Taskline.app/Contents/MacOS/Taskline";
-  const env = {
+  const env: Record<string, string> = {
     ...process.env,
     TASKLINE_E2E: "1",
     TASKLINE_DATA_DIR: directory,
@@ -41,9 +46,9 @@ test("board shortcut and Dock preference apply immediately and survive relaunch"
       args: ["--user-data-dir=" + join(directory, "electron")],
       env,
     });
-  let app;
+  let app!: ElectronApplication;
   const state = async () => await (await fetch(origin + "/api/state")).json();
-  const openSettings = async (page) => {
+  const openSettings = async (page: Page) => {
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     return page.getByRole("dialog", { name: "Settings", exact: true });
   };
@@ -53,11 +58,11 @@ test("board shortcut and Dock preference apply immediately and survive relaunch"
         (w) => w.getTitle() === "Taskline",
       );
       return {
-        id: board.id,
-        visible: board.isVisible(),
-        minimized: board.isMinimized(),
-        focused: board.isFocused(),
-        dock: app.dock.isVisible(),
+        id: board!.id,
+        visible: board!.isVisible(),
+        minimized: board!.isMinimized(),
+        focused: board!.isFocused(),
+        dock: app.dock!.isVisible(),
       };
     });
   try {
@@ -65,7 +70,9 @@ test("board shortcut and Dock preference apply immediately and survive relaunch"
     let page = await app.firstWindow();
     await expect(page.locator(".kanban")).toBeVisible();
     expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true);
-    const initial = await page.evaluate(() => window.taskline.desktopInfo());
+    const initial = await page.evaluate(() =>
+      globalThis.window.taskline!.desktopInfo(),
+    );
     expect(initial.boardRegistered).toBe(true);
     expect(initial.textRegistered).toBe(true);
     expect(initial.screenshotRegistered).toBe(true);
@@ -95,11 +102,12 @@ test("board shortcut and Dock preference apply immediately and survive relaunch"
     ).toBeVisible();
     expect((await state()).settings.boardShortcut).toBe(originalShortcut);
     expect(
-      (await page.evaluate(() => window.taskline.desktopInfo()))
+      (await page.evaluate(() => globalThis.window.taskline!.desktopInfo()))
         .boardRegistered,
     ).toBe(true);
     expect(
-      (await page.evaluate(() => window.taskline.desktopInfo())).textRegistered,
+      (await page.evaluate(() => globalThis.window.taskline!.desktopInfo()))
+        .textRegistered,
     ).toBe(true);
     const shortcut = "Control+Alt+Shift+0";
     await settings.getByLabel("Board shortcut", { exact: true }).fill(shortcut);
@@ -116,7 +124,7 @@ test("board shortcut and Dock preference apply immediately and survive relaunch"
       ),
     ).toBe(false);
     expect(
-      (await page.evaluate(() => window.taskline.desktopInfo()))
+      (await page.evaluate(() => globalThis.window.taskline!.desktopInfo()))
         .boardRegistered,
     ).toBe(true);
     await expect
@@ -125,12 +133,12 @@ test("board shortcut and Dock preference apply immediately and survive relaunch"
     const originalId = (await boardState()).id;
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()
-        .find((w) => w.getTitle() === "Taskline")
+        .find((w) => w.getTitle() === "Taskline")!
         .close(),
     );
     await expect.poll(async () => (await boardState()).visible).toBe(false);
     await app.evaluate(
-      (_, key) => globalThis.registeredBoardCallbacks.get(key)(),
+      (_, key) => globalThis.registeredBoardCallbacks.get(key)!(),
       shortcut,
     );
     await expect.poll(async () => (await boardState()).visible).toBe(true);
@@ -139,12 +147,12 @@ test("board shortcut and Dock preference apply immediately and survive relaunch"
     expect((await boardState()).dock).toBe(false);
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()
-        .find((w) => w.getTitle() === "Taskline")
+        .find((w) => w.getTitle() === "Taskline")!
         .minimize(),
     );
     await expect.poll(async () => (await boardState()).minimized).toBe(true);
     await app.evaluate(
-      (_, key) => globalThis.registeredBoardCallbacks.get(key)(),
+      (_, key) => globalThis.registeredBoardCallbacks.get(key)!(),
       shortcut,
     );
     await expect.poll(async () => (await boardState()).minimized).toBe(false);
@@ -154,7 +162,7 @@ test("board shortcut and Dock preference apply immediately and survive relaunch"
     page = await app.firstWindow();
     await expect(page.locator(".kanban")).toBeVisible();
     expect(
-      (await page.evaluate(() => window.taskline.desktopInfo()))
+      (await page.evaluate(() => globalThis.window.taskline!.desktopInfo()))
         .boardRegistered,
     ).toBe(true);
     await expect.poll(async () => (await boardState()).dock).toBe(false);
@@ -188,7 +196,7 @@ test("board shortcut and Dock preference apply immediately and survive relaunch"
     await expect.poll(async () => (await boardState()).dock).toBe(true);
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()
-        .find((w) => w.getTitle() === "Taskline")
+        .find((w) => w.getTitle() === "Taskline")!
         .close(),
     );
     expect((await boardState()).dock).toBe(true);

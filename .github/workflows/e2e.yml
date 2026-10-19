@@ -49,10 +49,10 @@ jobs:
           case "$TEST_SUITE" in
             image-viewer-lifecycle)
               for suite in board-access board-status composer image-viewer; do
-                npm run test:e2e -- "tests/$suite.e2e.mjs" --output="test-results/$suite"
+                npm run test:e2e -- "tests/$suite.e2e.ts" --output="test-results/$suite"
               done ;;
             image-viewer|region-capture|composer|project-cli|task-planning|thread-targets|board-access|board-status|release-smoke)
-              npm run test:e2e -- "tests/$TEST_SUITE.e2e.mjs" ;;
+              npm run test:e2e -- "tests/$TEST_SUITE.e2e.ts" ;;
             *) echo "Unsupported fixture"; exit 1 ;;
           esac
       - name: Upload diagnostics

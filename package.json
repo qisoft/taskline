@@ -22,7 +22,8 @@
     "typecheck": "tsc --noEmit",
     "build:runtime": "tsx scripts/build.ts",
     "check:release": "tsx scripts/check-release.ts",
-    "install:cli": "npm run build:runtime && node build/standalone/install-cli.mjs"
+    "install:cli": "npm run build:runtime && node build/scripts/install-cli.js",
+    "check:sources": "tsx scripts/check-sources.ts"
   },
   "dependencies": {
     "@fontsource-variable/inter": "5.3.0",
@@ -80,10 +81,6 @@
       {
         "from": "build/standalone/taskline.mjs",
         "to": "taskline.mjs"
-      },
-      {
-        "from": "build/standalone/install-cli.mjs",
-        "to": "install-cli.mjs"
       }
     ],
     "win": {

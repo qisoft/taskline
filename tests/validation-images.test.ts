@@ -1,3 +1,5 @@
+import { seed } from "./helpers.js";
+import { tcpPort } from "./helpers.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -14,14 +16,14 @@ const png = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV1cAAAAASUVORK5CYII=",
   "base64",
 );
-const server = async (handler) => {
+const server = async (handler: import("node:http").RequestListener) => {
   const s = createServer(handler);
-  await new Promise((r) => s.listen(0, "127.0.0.1", r));
+  await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
   return {
-    origin: "http://127.0.0.1:" + s.address().port,
+    origin: "http://127.0.0.1:" + tcpPort(s),
     close: () =>
-      new Promise((r) => {
-        s.close(r);
+      new Promise<void>((r) => {
+        s.close(() => r());
         s.closeAllConnections();
       }),
   };
@@ -30,10 +32,16 @@ test("extracts image references with spaces and excludes user input and non-imag
   const refs = imageReferences([
     {
       id: "a",
+      payload: { id: "a", runId: "fixture", type: "assistant" },
       type: "assistant",
       text: "![Check](</tmp/proof with spaces.png>) [file](file:///tmp/proof%20two.png) `screenshots/result.webp` https://example.com/check.jpg?x=2 [Docs](https://example.com/docs) [Screenshot](https://example.com/assets/id)",
     },
-    { id: "u", type: "user", text: "![Input](/tmp/input.png)" },
+    {
+      id: "u",
+      payload: { id: "u", runId: "fixture", type: "assistant" },
+      type: "user",
+      text: "![Input](/tmp/input.png)",
+    },
   ]);
   assert.deepEqual(
     refs.map((r) => r.reference),
@@ -58,6 +66,7 @@ test("copies and deduplicates local and linked images with durable provenance an
     const evidence = [
       {
         id: "result",
+        payload: { id: "result", runId: "fixture", type: "assistant" },
         type: "assistant",
         text: `![Local](<${path}>) [URL](${http.origin}/proof.png) [Again](${pathToFileURL(path)}) [Encoded](<${path.replaceAll(" ", "%20")}>) [Bad](${http.origin}/bad.png) \`missing.png\` \`input.png\``,
       },
@@ -65,17 +74,25 @@ test("copies and deduplicates local and linked images with durable provenance an
     const result = await collectValidationImages(store, {
       workspace: dir,
       evidence,
-      attachments: [{ name: "input.png" }],
+      attachments: [
+        {
+          type: "image",
+          id: "input",
+          name: "input.png",
+          mimeType: "image/png",
+          sizeBytes: png.length,
+        },
+      ],
     });
     assert.equal(result.validationImages.length, 1);
     assert.equal(result.validationImages[0].sources.length, 4);
     assert.equal(result.validationImageIssues.length, 2);
-    store.put("attempts", { id: "a", ...result });
+    seed(store, "attempts", { id: "a", ...result });
     rmSync(path);
     await http.close();
     store.close();
     store = new Store(join(dir, "db"));
-    const saved = store.get("attempts", "a");
+    const saved = store.require("attempts", "a");
     assert.deepEqual(saved.validationImages, result.validationImages);
     assert.ok(store.image(saved.validationImages[0].id).equals(png));
   } finally {
@@ -101,9 +118,11 @@ test("uses the T3 credential only for its exact origin and strips it on external
     const result = await collectValidationImages(
       store,
       {
+        attachments: [],
         evidence: [
           {
             id: "r",
+            payload: { id: "r", runId: "fixture", type: "assistant" },
             type: "assistant",
             text: `![Result](${inside.origin}/proof.png)`,
           },

@@ -5,7 +5,7 @@ if (process.env.CI !== "true" && process.env.TASKLINE_REMOTE_TEST_ENV !== "1")
   );
 export default defineConfig({
   testDir: "tests",
-  testMatch: "*.e2e.mjs",
+  testMatch: "*.e2e.ts",
   workers: 1,
   timeout: 240000,
   expect: { timeout: 30000 },

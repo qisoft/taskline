@@ -1,3 +1,4 @@
+import { tcpPort } from "./helpers.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -5,21 +6,24 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { startServer } from "../server/index.js";
 
-async function fixture(directory) {
+async function fixture(directory: string) {
   const runtime = await startServer({ port: 0, dataDir: directory });
   runtime.scheduler.stop();
   runtime.scheduler.signal = () => {};
   runtime.scheduler.reports.enqueue = () => {};
-  runtime.scheduler.projects = [{ id: "p" }, { id: "q" }];
-  runtime.scheduler.threads = [
-    { id: "existing", projectId: "p" },
-    { id: "foreign", projectId: "q" },
-    { id: "archived", projectId: "p", archivedAt: "now" },
+  runtime.scheduler.projects = [
+    { id: "p", title: "p", workspaceRoot: "/fixture/p" },
+    { id: "q", title: "q", workspaceRoot: "/fixture/q" },
   ];
-  const origin = "http://127.0.0.1:" + runtime.server.address().port;
+  runtime.scheduler.threads = [
+    { id: "existing", title: "Existing", projectId: "p" },
+    { id: "foreign", title: "Foreign", projectId: "q" },
+    { id: "archived", title: "Archived", projectId: "p", archivedAt: "now" },
+  ];
+  const origin = "http://127.0.0.1:" + tcpPort(runtime.server);
   const request = async (
-    path,
-    input,
+    path: string,
+    input?: unknown,
     method = input === undefined ? "GET" : "POST",
   ) => {
     const response = await fetch(origin + "/api" + path, {
@@ -53,7 +57,10 @@ test("API reserves project-scoped task targets independently of epics, and persi
     assert.equal(tasks[0].data.threadId, tasks[1].data.threadId);
     assert.notEqual(tasks[0].data.threadId, tasks[2].data.threadId);
     assert.notEqual(tasks[0].data.threadId, tasks[3].data.threadId);
-    assert.equal(f.runtime.store.get("groups", epic.id).threadId, undefined);
+    assert.equal(
+      Reflect.get(f.runtime.store.require("groups", epic.id), "threadId"),
+      undefined,
+    );
     assert.equal(f.runtime.store.list("attempts").length, 0);
     assert.equal(f.runtime.store.list("threadTargets").length, 3);
     const id = tasks[0].data.threadId;
@@ -81,7 +88,9 @@ test("API reserves project-scoped task targets independently of epics, and persi
     assert.equal(afterRestart.data.threadId, id);
     const state = (await f.request("/state")).data;
     assert.equal(
-      state.threadTargets.find((t) => t.id === id).materializedAt,
+      state.threadTargets.find(
+        (t: import("../shared/types.js").ThreadTarget) => t.id === id,
+      ).materializedAt,
       null,
     );
     assert.equal(state.settings.targetHistory.p.lastThreadId, id);
@@ -111,7 +120,7 @@ test("API validates target choices and only permits retargeting unstarted queued
       { threadId: "foreign" },
       { threadId: "archived" },
       { threadId: "unknown" },
-    ])
+    ] as const)
       assert.equal(
         (
           await f.request("/tasks", {
@@ -141,7 +150,7 @@ test("API validates target choices and only permits retargeting unstarted queued
       "PATCH",
     );
     assert.equal(bad.status, 400);
-    assert.equal(f.runtime.store.get("tasks", task.id).prompt, "Task");
+    assert.equal(f.runtime.store.require("tasks", task.id).prompt, "Task");
     f.runtime.store.update("tasks", task.id, { currentAttemptId: "previous" });
     assert.equal(
       (await f.request(path, { threadKey: "too-late" }, "PATCH")).status,

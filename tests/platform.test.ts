@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dataDirectory, toolCandidates } from "../server/platform.js";
 import { runCommand } from "../server/commands.js";
-import { installCli } from "../scripts/install-cli.js";
+import { installCli } from "../electron/cli-install.js";
 
 test("data and provider locations follow native platform conventions and explicit overrides", () => {
   assert.equal(
@@ -62,7 +62,10 @@ test("CLI installer creates idempotent commands and refuses to overwrite unrelat
     writeFileSync(resource, "console.log('fixture')\n");
     const bin = join(directory, "bin");
     const target = installCli({ resource, directory: bin, platform: "win32" });
-    assert.match(readFileSync(target, "utf8"), /^@echo off\r\nnode "/);
+    assert.match(
+      readFileSync(target, "utf8"),
+      /^@echo off\r\nrem Taskline managed CLI v1\r\nsetlocal DisableDelayedExpansion\r\n"node" "/,
+    );
     assert.equal(
       installCli({ resource, directory: bin, platform: "win32" }),
       target,

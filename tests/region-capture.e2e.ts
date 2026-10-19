@@ -1,16 +1,18 @@
+import { tcpPort } from "./helpers.js";
+import type { ElectronApplication, Page } from "@playwright/test";
 import { test, expect, _electron as electron } from "@playwright/test";
 import { createServer } from "node:net";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-let app, board, directory;
+let app: ElectronApplication, board: Page, directory: string;
 test.beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), "taskline-region-"));
   const probe = createServer();
-  await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
-  const port = probe.address().port;
-  await new Promise((resolve) => probe.close(resolve));
-  const env = {
+  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+  const port = tcpPort(probe);
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+  const env: Record<string, string> = {
     ...process.env,
     TASKLINE_E2E: "1",
     TASKLINE_DATA_DIR: directory,
@@ -48,7 +50,7 @@ test.beforeAll(async () => {
             name: "CI capture fixture",
             display_id: String(display.id),
             thumbnail: nativeImage.createFromBitmap(pixels, { width, height }),
-            appIcon: null,
+            appIcon: nativeImage.createEmpty(),
           };
         });
     });
@@ -83,11 +85,11 @@ async function geometry() {
   }));
 }
 async function cancel() {
-  await board.evaluate(() => window.taskline.cancelRegion());
+  await board.evaluate(() => globalThis.window.taskline!.cancelRegion());
 }
 test("capture overlay covers full display bounds including the left Dock and menu bar", async () => {
   try {
-    await board.evaluate(() => window.taskline.captureRegion());
+    await board.evaluate(() => globalThis.window.taskline!.captureRegion());
     const state = await geometry();
     mkdirSync("artifacts", { recursive: true });
     writeFileSync(
@@ -104,11 +106,11 @@ test("capture overlay covers full display bounds including the left Dock and men
         display,
         "overlay must start at the display origin, not the Dock inset",
       ).toBeTruthy();
-      expect(overlay.bounds).toEqual(display.bounds);
-      expect(overlay.contentBounds).toEqual(display.bounds);
+      expect(overlay.bounds).toEqual(display!.bounds);
+      expect(overlay.contentBounds).toEqual(display!.bounds);
       expect(overlay.viewport).toEqual({
-        width: display.bounds.width,
-        height: display.bounds.height,
+        width: display!.bounds.width,
+        height: display!.bounds.height,
       });
     }
   } finally {
@@ -125,7 +127,7 @@ test("capture selection is available on every connected monitor and crops its ac
       "this regression requires a separate multi-monitor test environment",
     ).toBeGreaterThan(1);
   for (const selected of displays) {
-    await board.evaluate(() => window.taskline.captureRegion());
+    await board.evaluate(() => globalThis.window.taskline!.captureRegion());
     const state = await geometry();
     expect(state.overlays).toHaveLength(displays.length);
     const match = state.overlays.find(
@@ -134,22 +136,26 @@ test("capture selection is available on every connected monitor and crops its ac
     );
     expect(match).toBeTruthy();
     // Match Playwright's page to its native display window without changing focus or cursor.
-    let region;
+    let region: Page | undefined;
     for (const candidate of app.windows()) {
       if (!candidate.url().endsWith("/region.html")) continue;
       const id = await (
         await app.browserWindow(candidate)
       ).evaluate((w) => w.id);
-      if (id === match.id) region = candidate;
+      if (id === match!.id) region = candidate;
     }
-    await expect(region.locator("#screen")).toHaveJSProperty("complete", true);
+    await expect(region!.locator("#screen")).toHaveJSProperty("complete", true);
     await expect
-      .poll(() => region.locator("#screen").evaluate((img) => img.naturalWidth))
+      .poll(() =>
+        region!
+          .locator("#screen")
+          .evaluate((img) => (img as HTMLImageElement).naturalWidth),
+      )
       .toBeGreaterThan(0);
-    const dataURL = await region.locator("#screen").getAttribute("src");
-    const imageSize = await region.locator("#screen").evaluate((img) => ({
-      width: img.naturalWidth,
-      height: img.naturalHeight,
+    const dataURL = await region!.locator("#screen").getAttribute("src");
+    const imageSize = await region!.locator("#screen").evaluate((img) => ({
+      width: (img as HTMLImageElement).naturalWidth,
+      height: (img as HTMLImageElement).naturalHeight,
     }));
     expect(imageSize.width / imageSize.height).toBeCloseTo(
       selected.bounds.width / selected.bounds.height,
@@ -162,7 +168,7 @@ test("capture selection is available on every connected monitor and crops its ac
     const expectedCrop = await app.evaluate(
       ({ nativeImage }, { dataURL, imageSize, bounds }) =>
         nativeImage
-          .createFromDataURL(dataURL)
+          .createFromDataURL(dataURL!)
           .crop({
             x: Math.round((2 * imageSize.width) / bounds.width),
             y: Math.round((2 * imageSize.height) / bounds.height),
@@ -174,26 +180,26 @@ test("capture selection is available on every connected monitor and crops its ac
       { dataURL, imageSize, bounds: selected.bounds },
     );
     const popupPromise = app.waitForEvent("window");
-    await region.mouse.move(2, 2);
-    await region.mouse.down();
-    await region.mouse.move(122, 92, { steps: 4 });
-    await region.mouse.up();
+    await region!.mouse.move(2, 2);
+    await region!.mouse.down();
+    await region!.mouse.move(122, 92, { steps: 4 });
+    await region!.mouse.up();
     const capture = await popupPromise;
     await expect(capture.getByLabel("Task prompt")).toBeVisible();
     const attachment = await capture.evaluate(() =>
-      window.taskline.pendingCapture(),
+      globalThis.window.taskline!.pendingCapture(),
     );
     await expect
       .poll(() =>
         capture
           .locator(".attachment-preview img")
-          .evaluate((img) => img.naturalWidth),
+          .evaluate((img) => (img as HTMLImageElement).naturalWidth),
       )
       .toBeGreaterThan(0);
     const actualCrop = await capture.evaluate(
       async (url) =>
         Array.from(new Uint8Array(await (await fetch(url)).arrayBuffer())),
-      attachment.url,
+      attachment!.url,
     );
     expect(
       Buffer.from(actualCrop).equals(Buffer.from(expectedCrop, "base64")),
@@ -208,8 +214,8 @@ test("capture selection is available on every connected monitor and crops its ac
     const size = await capture
       .locator(".attachment-preview img")
       .evaluate((img) => ({
-        width: img.naturalWidth,
-        height: img.naturalHeight,
+        width: (img as HTMLImageElement).naturalWidth,
+        height: (img as HTMLImageElement).naturalHeight,
       }));
     expect(size.width).toBe(
       Math.round((120 * imageSize.width) / selected.bounds.width),
@@ -234,8 +240,8 @@ test("capture selection is available on every connected monitor and crops its ac
 test("Escape closes all monitor overlays and repeated capture does not duplicate them", async () => {
   const nextRegion = app.waitForEvent("window");
   await Promise.all([
-    board.evaluate(() => window.taskline.captureRegion()),
-    board.evaluate(() => window.taskline.captureRegion()),
+    board.evaluate(() => globalThis.window.taskline!.captureRegion()),
+    board.evaluate(() => globalThis.window.taskline!.captureRegion()),
   ]);
   const state = await geometry();
   expect(state.overlays).toHaveLength(state.displays.length);

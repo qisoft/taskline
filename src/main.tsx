@@ -1675,6 +1675,19 @@ function SettingsDialog({
           Connect environment
         </button>
         <hr />
+        {desktop && (desktop.cliPath || desktop.cliError) && (
+          <section aria-label="CLI installation">
+            <h3>CLI command</h3>
+            {desktop.cliError ? (
+              <p className="error">{desktop.cliError}</p>
+            ) : (
+              <p className="muted small">
+                <code>taskline</code> is installed. Open a new terminal to use
+                it.
+              </p>
+            )}
+          </section>
+        )}
         <h3>Desktop and global shortcuts</h3>
         {desktop && (
           <div className="row small">

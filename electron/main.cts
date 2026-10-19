@@ -37,6 +37,22 @@ let runtime:
   | Awaited<ReturnType<typeof import("../server/index.js").startServer>>
   | undefined;
 let quitting = false;
+let cliPath: string | null = null;
+let cliError: string | null = null;
+async function installBundledCli(
+  home = app.getPath("home"),
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  const { installDesktopCli }: typeof import("./cli-install.js") = await import(
+    pathToFileURL(path.join(__dirname, "cli-install.js")).href
+  );
+  return installDesktopCli({
+    resource: path.join(process.resourcesPath, "taskline.mjs"),
+    runtime: process.execPath,
+    home,
+    env,
+  });
+}
 let pendingCapture: ImageAttachment | null = null;
 const apiOrigin = "http://127.0.0.1:" + (process.env.TASKLINE_PORT || 4318);
 const uiOrigin = process.env.TASKLINE_UI_ORIGIN || apiOrigin;
@@ -533,6 +549,8 @@ ipcMain.handle(
     ),
 );
 ipcMain.handle("desktop:info", () => ({
+  cliPath,
+  cliError,
   boardRegistered: globalShortcut.isRegistered(settings.boardShortcut),
   dockVisible: app.dock?.isVisible() ?? null,
   textRegistered: globalShortcut.isRegistered(settings.textShortcut),
@@ -582,6 +600,23 @@ app
     console.log("Taskline: tray ready");
     createBoard();
     console.log("Taskline: board created");
+    if (
+      app.isPackaged &&
+      (!process.env.TASKLINE_E2E || process.env.TASKLINE_TEST_CLI_HOME)
+    ) {
+      try {
+        cliPath = (
+          await installBundledCli(
+            process.env.TASKLINE_E2E
+              ? process.env.TASKLINE_TEST_CLI_HOME
+              : undefined,
+          )
+        ).path;
+      } catch (error) {
+        cliError = asError(error).message;
+        console.error("Taskline CLI installation:", cliError);
+      }
+    }
     updateApplicationMenu();
     app.on("activate", createBoard);
   })

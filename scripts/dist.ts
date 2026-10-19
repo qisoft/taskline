@@ -53,5 +53,5 @@ if (platform === "mac") {
   });
 }
 
-for (const name of ["taskline.mjs", "install-cli.mjs"])
+for (const name of ["taskline.mjs"])
   copyFileSync("build/standalone/" + name, "release/" + name);

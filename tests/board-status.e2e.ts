@@ -1,3 +1,6 @@
+import { seed } from "./helpers.js";
+import { tcpPort } from "./helpers.js";
+import type { ElectronApplication, Page } from "@playwright/test";
 import { test, expect, _electron as electron } from "@playwright/test";
 import { createServer } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -5,11 +8,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "../server/store.js";
 
-let app, page, directory;
+let app: ElectronApplication, page: Page, directory: string;
 test.beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), "taskline-board-status-"));
   const store = new Store(directory);
-  store.put("settings", { id: "app", paused: true });
+  seed(store, "settings", { id: "app", paused: true });
   for (const status of [
     "todo",
     "failed",
@@ -17,8 +20,8 @@ test.beforeAll(async () => {
     "review",
     "done",
     "cancelled",
-  ])
-    store.put("tasks", {
+  ] as const)
+    seed(store, "tasks", {
       id: status + "-fixture",
       title: status + " fixture",
       prompt: "Local board fixture; no agent task is launched.",
@@ -34,10 +37,12 @@ test.beforeAll(async () => {
     });
   store.close();
   const portServer = createServer();
-  await new Promise((resolve) => portServer.listen(0, "127.0.0.1", resolve));
-  const port = portServer.address().port;
-  await new Promise((resolve) => portServer.close(resolve));
-  const env = {
+  await new Promise<void>((resolve) =>
+    portServer.listen(0, "127.0.0.1", resolve),
+  );
+  const port = tcpPort(portServer);
+  await new Promise<void>((resolve) => portServer.close(() => resolve()));
+  const env: Record<string, string> = {
     ...process.env,
     TASKLINE_E2E: "1",
     TASKLINE_DATA_DIR: directory,
@@ -67,7 +72,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   if (app) {
     const child = app.process();
-    let timer;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
         app.close(),
@@ -107,7 +112,7 @@ test("cancelled tasks appear in Done, retain their status and can still be retri
     ["doing", ["doing"]],
     ["review", ["review"]],
     ["done", ["done", "cancelled"]],
-  ]) {
+  ] as const) {
     const section = page.locator(".column-" + column);
     await expect(section.getByRole("article")).toHaveCount(statuses.length);
     for (const status of statuses)

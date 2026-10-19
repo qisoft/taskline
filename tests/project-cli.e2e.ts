@@ -1,3 +1,6 @@
+import { mockProjectCreation } from "./helpers.js";
+import { tcpPort } from "./helpers.js";
+import type { ElectronApplication } from "@playwright/test";
 import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
@@ -11,20 +14,13 @@ test("CLI planning backlog and native Active/Paused controls share one durable p
   const runtime = await startServer({ port: 0, dataDir: directory });
   runtime.scheduler.stop();
   runtime.scheduler.signal = () => {};
-  runtime.scheduler.t3.call = async (tag, input) => {
-    expect(tag).toBe("projects.mutate");
-    return {
-      id: input.projectId,
-      title: input.title,
-      workspaceRoot: input.workspaceRoot,
-    };
-  };
-  const origin = "http://127.0.0.1:" + runtime.server.address().port;
+  mockProjectCreation(runtime.scheduler.t3);
+  const origin = "http://127.0.0.1:" + tcpPort(runtime.server);
   const executable =
     process.env.TASKLINE_TEST_APP ||
     "/Applications/Taskline.app/Contents/MacOS/Taskline";
   const bundledCli = resolve(dirname(executable), "../Resources/taskline.mjs");
-  const cli = async (args) =>
+  const cli = async (args: string[]) =>
     JSON.parse(
       (
         await exec(process.execPath, [bundledCli, ...args, "--json"], {
@@ -32,11 +28,11 @@ test("CLI planning backlog and native Active/Paused controls share one durable p
         })
       ).stdout,
     );
-  const env = {
+  const env: Record<string, string> = {
     ...process.env,
     TASKLINE_E2E: "1",
     TASKLINE_DATA_DIR: directory,
-    TASKLINE_PORT: String(runtime.server.address().port),
+    TASKLINE_PORT: String(tcpPort(runtime.server)),
   };
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.TASKLINE_UI_ORIGIN;
@@ -46,7 +42,7 @@ test("CLI planning backlog and native Active/Paused controls share one durable p
       args: ["--user-data-dir=" + join(directory, "electron")],
       env,
     });
-  let app;
+  let app!: ElectronApplication;
   try {
     const project = await cli([
       "project",

@@ -1,3 +1,5 @@
+import { mockProjectCreation } from "./helpers.js";
+import { tcpPort } from "./helpers.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -6,8 +8,13 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { startServer } from "../server/index.js";
 const cli = resolve("build/standalone/taskline.mjs");
-function run(args, origin, input = "", cwd = process.cwd()) {
-  return new Promise((resolve) => {
+function run(args: string[], origin: string, input = "", cwd = process.cwd()) {
+  return new Promise<{
+    code: number | null;
+    out: string;
+    err: string;
+    data: ReturnType<typeof JSON.parse>;
+  }>((resolve) => {
     const child = spawn(process.execPath, [cli, ...args, "--json"], {
       cwd,
       env: { ...process.env, TASKLINE_URL: origin },
@@ -28,16 +35,9 @@ test("CLI manages paused planning projects, epics, stdin tasks, updates and stat
   const runtime = await startServer({ port: 0, dataDir: directory });
   runtime.scheduler.stop();
   runtime.scheduler.signal = () => {};
-  const origin = "http://127.0.0.1:" + runtime.server.address().port;
-  runtime.scheduler.t3.call = async (tag, input) => {
-    assert.equal(tag, "projects.mutate");
-    return {
-      id: input.projectId,
-      title: input.title,
-      workspaceRoot: input.workspaceRoot,
-    };
-  };
-  const ok = async (args, input = "") => {
+  const origin = "http://127.0.0.1:" + tcpPort(runtime.server);
+  mockProjectCreation(runtime.scheduler.t3);
+  const ok = async (args: string[], input = "") => {
     const result = await run(args, origin, input);
     assert.equal(result.code, 0, result.err);
     return result.data;
@@ -158,18 +158,18 @@ test("CLI creates, lists and edits task-level future thread bindings without bin
   runtime.scheduler.signal = () => {};
   runtime.scheduler.projects = [
     { id: "p", title: "Project", workspaceRoot: directory },
-    { id: "q", title: "Other" },
+    { id: "q", title: "Other", workspaceRoot: "/q" },
   ];
   runtime.scheduler.threads = [
     { id: "existing", projectId: "p", title: "Existing", status: "idle" },
   ];
-  const origin = "http://127.0.0.1:" + runtime.server.address().port;
-  const ok = async (args) => {
+  const origin = "http://127.0.0.1:" + tcpPort(runtime.server);
+  const ok = async (args: string[]) => {
     const result = await run(args, origin);
     assert.equal(result.code, 0, result.err);
     return result.data;
   };
-  const add = async (target, project = "p", epic = "none") =>
+  const add = async (target: string[], project = "p", epic = "none") =>
     ok([
       "task",
       "add",
@@ -200,8 +200,18 @@ test("CLI creates, lists and edits task-level future thread bindings without bin
     const byId = await add(["--thread", first.threadId]);
     assert.equal(byId.threadKey, "api");
     const threads = await ok(["thread", "list", "--project", "p"]);
-    assert.equal(threads.filter((t) => t.status === "planned").length, 2);
-    assert.equal(threads.find((t) => t.threadKey === "api").id, first.threadId);
+    assert.equal(
+      threads.filter(
+        (t: import("../shared/types.js").Thread) => t.status === "planned",
+      ).length,
+      2,
+    );
+    assert.equal(
+      threads.find(
+        (t: import("../shared/types.js").Task) => t.threadKey === "api",
+      ).id,
+      first.threadId,
+    );
     assert.equal((await ok(["epic", "show", epic.id])).threadId, undefined);
     assert.equal((await add(["--thread", "new"], "p", epic.id)).threadId, null);
     assert.equal(
@@ -245,15 +255,15 @@ test("CLI manages task priorities and blocker links, filters blocked tasks, and 
   runtime.scheduler.reports.enqueue = () => {};
   runtime.scheduler.projects = [
     { id: "p", title: "Planning", workspaceRoot: directory },
-    { id: "q", title: "Other" },
+    { id: "q", title: "Other", workspaceRoot: "/q" },
   ];
-  const origin = "http://127.0.0.1:" + runtime.server.address().port;
-  const ok = async (args) => {
+  const origin = "http://127.0.0.1:" + tcpPort(runtime.server);
+  const ok = async (args: string[]) => {
     const result = await run(args, origin);
     assert.equal(result.code, 0, result.err);
     return result.data;
   };
-  const add = (title, ...args) =>
+  const add = (title: string, ...args: string[]) =>
     ok(["task", "add", "--project", "p", "--prompt", title, ...args]);
   try {
     const a = await add("Base", "--priority", "low"),
@@ -269,7 +279,7 @@ test("CLI manages task priorities and blocker links, filters blocked tasks, and 
     assert.deepEqual(b.blockingTaskIds, [a.id]);
     const rows = await ok(["task", "list", "--project", "p"]);
     assert.deepEqual(
-      rows.map((t) => t.id),
+      rows.map((t: { id: string }) => t.id),
       [b.id, c.id, a.id],
     );
     assert.deepEqual(
@@ -283,7 +293,7 @@ test("CLI manages task priorities and blocker links, filters blocked tasks, and 
           "urgent",
           "--blocked",
         ])
-      ).map((t) => t.id),
+      ).map((t: { id: string }) => t.id),
       [b.id],
     );
     await ok(["task", "block", b.id, "--by", c.id, "--by", a.id]);

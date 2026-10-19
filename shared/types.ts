@@ -379,6 +379,8 @@ export interface T3RpcResults {
   "orchestration.dispatchCommand": unknown;
 }
 export interface DesktopInfo {
+  cliPath: string | null;
+  cliError: string | null;
   platform: NodeJS.Platform;
   boardRegistered: boolean;
   textRegistered: boolean;

@@ -19,6 +19,7 @@
     "electron",
     "cli",
     "scripts",
-    "*.config.ts"
+    "*.config.ts",
+    "tests"
   ]
 }

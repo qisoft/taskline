@@ -26,6 +26,7 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci
+      - run: npm run check:sources
       - run: npm run check:release
       - run: npm run format:check
       - run: npm run typecheck
@@ -69,16 +70,16 @@ jobs:
       - run: npm run dist:${{ matrix.platform }} -- --${{ matrix.arch }}
       - name: Packaged application smoke test (no agents)
         if: matrix.platform == 'win'
-        run: npm run test:e2e -- tests/release-smoke.e2e.mjs
+        run: npm run test:e2e -- tests/release-smoke.e2e.ts
         env:
           TASKLINE_TEST_APP: ${{ github.workspace }}/${{ matrix.executable }}
       - name: Packaged macOS E2E (isolated fixtures, no agents)
         if: matrix.platform == 'mac'
         run: |
           # Keep each packaged-app fixture in its own Playwright process.
-          # Reused Electron drivers can stop delivering keyboard input on Intel Macs.
+          # Each fixture owns its Playwright and Electron driver state.
           for suite in board-access board-status composer image-viewer project-cli region-capture release-smoke task-planning thread-targets; do
-            npm run test:e2e -- "tests/$suite.e2e.mjs" --output="test-results/$suite"
+            npm run test:e2e -- "tests/$suite.e2e.ts" --output="test-results/$suite"
           done
         env:
           TASKLINE_TEST_APP: ${{ github.workspace }}/${{ matrix.executable }}

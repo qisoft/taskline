@@ -1,3 +1,6 @@
+import { seed } from "./helpers.js";
+import { tcpPort } from "./helpers.js";
+import type { ElectronApplication } from "@playwright/test";
 import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
@@ -24,13 +27,13 @@ test("native composer and bundled CLI share task-level future threads, preserve 
       status: "idle",
     },
   ];
-  runtime.store.put("settings", { id: "project:p", autoStart: false });
-  const origin = "http://127.0.0.1:" + runtime.server.address().port;
+  seed(runtime.store, "settings", { id: "project:p", autoStart: false });
+  const origin = "http://127.0.0.1:" + tcpPort(runtime.server);
   const executable =
     process.env.TASKLINE_TEST_APP ||
     "/Applications/Taskline.app/Contents/MacOS/Taskline";
   const bundledCli = resolve(dirname(executable), "../Resources/taskline.mjs");
-  const cli = async (args) =>
+  const cli = async (args: string[]) =>
     JSON.parse(
       (
         await exec(process.execPath, [bundledCli, ...args, "--json"], {
@@ -38,11 +41,11 @@ test("native composer and bundled CLI share task-level future threads, preserve 
         })
       ).stdout,
     );
-  const env = {
+  const env: Record<string, string> = {
     ...process.env,
     TASKLINE_E2E: "1",
     TASKLINE_DATA_DIR: directory,
-    TASKLINE_PORT: String(runtime.server.address().port),
+    TASKLINE_PORT: String(tcpPort(runtime.server)),
   };
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.TASKLINE_UI_ORIGIN;
@@ -52,7 +55,7 @@ test("native composer and bundled CLI share task-level future threads, preserve 
       args: ["--user-data-dir=" + join(directory, "electron")],
       env,
     });
-  let app;
+  let app!: ElectronApplication;
   try {
     const epic = await cli([
       "epic",
@@ -93,7 +96,9 @@ test("native composer and bundled CLI share task-level future threads, preserve 
       page.getByRole("article", { name: "Implement API", exact: true }),
     ).toBeVisible();
     const rows = await cli(["task", "list", "--project", "p"]);
-    const second = rows.find((t) => t.title === "Implement API");
+    const second = rows.find(
+      (t: import("../shared/types.js").Task) => t.title === "Implement API",
+    );
     expect(second.threadId).toBe(first.threadId);
     expect(second.groupId).toBe(epic.id);
     await page
@@ -117,7 +122,7 @@ test("native composer and bundled CLI share task-level future threads, preserve 
       page.getByRole("article", { name: "Implement UI", exact: true }),
     ).toBeVisible();
     const ui = (await cli(["task", "list", "--project", "p"])).find(
-      (t) => t.title === "Implement UI",
+      (t: import("../shared/types.js").Task) => t.title === "Implement UI",
     );
     expect(ui.threadId).not.toBe(first.threadId);
     expect(ui.groupId).toBe(epic.id);
@@ -130,7 +135,8 @@ test("native composer and bundled CLI share task-level future threads, preserve 
     ).toBeVisible();
     expect(
       (await cli(["task", "list", "--project", "p"])).find(
-        (t) => t.title === "Independent task",
+        (t: import("../shared/types.js").Task) =>
+          t.title === "Independent task",
       ).threadId,
     ).toBeNull();
     await page.getByRole("button", { name: "New task", exact: true }).click();
@@ -145,7 +151,8 @@ test("native composer and bundled CLI share task-level future threads, preserve 
     ).toBeVisible();
     expect(
       (await cli(["task", "list", "--project", "p"])).find(
-        (t) => t.title === "Explicit existing thread",
+        (t: import("../shared/types.js").Task) =>
+          t.title === "Explicit existing thread",
       ).threadId,
     ).toBe("existing");
     await cli([
@@ -181,7 +188,10 @@ test("native composer and bundled CLI share task-level future threads, preserve 
         async () =>
           runtime.store
             .list("tasks")
-            .find((t) => t.title === "Captured task for API")?.threadId,
+            .find(
+              (t: import("../shared/types.js").Task) =>
+                t.title === "Captured task for API",
+            )?.threadId,
       )
       .toBe(first.threadId);
     expect(runtime.store.list("attempts")).toHaveLength(0);

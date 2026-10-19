@@ -1,3 +1,6 @@
+import { stateFixture } from "./helpers.js";
+import { tcpPort } from "./helpers.js";
+import type { ElectronApplication } from "@playwright/test";
 import { test as base, expect, _electron as electron } from "@playwright/test";
 import { createServer } from "vite";
 import { createServer as createPortServer } from "node:net";
@@ -12,12 +15,14 @@ const test =
         page: async ({}, use) => {
           const directory = mkdtempSync(join(tmpdir(), "taskline-composer-"));
           const portServer = createPortServer();
-          await new Promise((resolve) =>
+          await new Promise<void>((resolve) =>
             portServer.listen(0, "127.0.0.1", resolve),
           );
-          const port = portServer.address().port;
-          await new Promise((resolve) => portServer.close(resolve));
-          const env = {
+          const port = tcpPort(portServer);
+          await new Promise<void>((resolve) =>
+            portServer.close(() => resolve()),
+          );
+          const env: Record<string, string> = {
             ...process.env,
             TASKLINE_E2E: "1",
             TASKLINE_DATA_DIR: directory,
@@ -25,7 +30,7 @@ const test =
           };
           delete env.ELECTRON_RUN_AS_NODE;
           delete env.TASKLINE_UI_ORIGIN;
-          let app;
+          let app!: ElectronApplication;
           try {
             app = await electron.launch({
               executablePath:
@@ -39,7 +44,7 @@ const test =
           } finally {
             if (app) {
               const child = app.process();
-              let timer;
+              let timer: ReturnType<typeof setTimeout> | undefined;
               try {
                 await Promise.race([
                   app.close(),
@@ -62,90 +67,96 @@ const test =
       })
     : base;
 
-let server, origin;
-const fixture = () => ({
-  projects: [
-    { id: "codex", title: "Codex project" },
-    { id: "opus", title: "Opus project" },
-    { id: "empty", title: "Empty project" },
-  ],
-  projectSettings: [
-    { id: "codex", instanceId: "codex", model: "gpt-6.1" },
-    { id: "opus", instanceId: "codex", model: "gpt-6.1" },
-    { id: "empty", instanceId: "codex", model: "gpt-6-luna" },
-  ],
-  threads: [
-    {
-      id: "codex-old",
-      projectId: "codex",
-      title: "Codex older",
-      status: "idle",
-      providerInstanceId: "codex",
-      modelSelection: { model: "gpt-6.1" },
-      updatedAt: new Date(Date.now() - 4 * 86400000).toISOString(),
-    },
-    {
-      id: "codex-new",
-      projectId: "codex",
-      title: "Codex newer",
-      status: "idle",
-      providerInstanceId: "codex",
-      modelSelection: { model: "gpt-6.1" },
-      updatedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
-    },
-    {
-      id: "opus-old",
-      projectId: "opus",
-      title: "Opus older",
-      status: "idle",
-      providerInstanceId: "claude",
-      modelSelection: { model: "opus-5.5" },
-      updatedAt: new Date(Date.now() - 4 * 86400000).toISOString(),
-    },
-    {
-      id: "opus-thread",
-      projectId: "opus",
-      title: "Opus work",
-      status: "idle",
-      providerInstanceId: "claude",
-      modelSelection: { model: "opus-5.5" },
-      updatedAt: new Date(Date.now() - 86400000).toISOString(),
-    },
-  ],
-  tasks: [],
-  groups: [
-    {
-      id: "codex-epic",
-      name: "Codex epic",
-      projectId: "codex",
-      status: "active",
-    },
-    { id: "opus-epic", name: "Opus epic", projectId: "opus", status: "active" },
-  ],
-  models: [
-    { instanceId: "codex", id: "gpt-6.1", label: "GPT-6.1" },
-    { instanceId: "claude", id: "opus-5.5", label: "Opus 5.5" },
-    { instanceId: "codex", id: "gpt-6-luna", label: "GPT-6 Luna" },
-  ],
-  settings: {
-    textShortcut: "CommandOrControl+Shift+1",
-    screenshotShortcut: "CommandOrControl+Shift+2",
-    lastProjectId: "codex",
-    lastGroupId: "codex-epic",
-    targetHistory: {
-      codex: {
-        lastUsedAt: new Date(Date.now() - 60000).toISOString(),
-        lastGroupId: "codex-epic",
+let server: import("vite").ViteDevServer | undefined, origin: string;
+const fixture = () =>
+  stateFixture({
+    projects: [
+      { id: "codex", title: "Codex project" },
+      { id: "opus", title: "Opus project" },
+      { id: "empty", title: "Empty project" },
+    ],
+    projectSettings: [
+      { id: "codex", instanceId: "codex", model: "gpt-6.1" },
+      { id: "opus", instanceId: "codex", model: "gpt-6.1" },
+      { id: "empty", instanceId: "codex", model: "gpt-6-luna" },
+    ],
+    threads: [
+      {
+        id: "codex-old",
+        projectId: "codex",
+        title: "Codex older",
+        status: "idle",
+        providerInstanceId: "codex",
+        modelSelection: { model: "gpt-6.1" },
+        updatedAt: new Date(Date.now() - 4 * 86400000).toISOString(),
+      },
+      {
+        id: "codex-new",
+        projectId: "codex",
+        title: "Codex newer",
+        status: "idle",
+        providerInstanceId: "codex",
+        modelSelection: { model: "gpt-6.1" },
+        updatedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+      },
+      {
+        id: "opus-old",
+        projectId: "opus",
+        title: "Opus older",
+        status: "idle",
+        providerInstanceId: "claude",
+        modelSelection: { model: "opus-5.5" },
+        updatedAt: new Date(Date.now() - 4 * 86400000).toISOString(),
+      },
+      {
+        id: "opus-thread",
+        projectId: "opus",
+        title: "Opus work",
+        status: "idle",
+        providerInstanceId: "claude",
+        modelSelection: { model: "opus-5.5" },
+        updatedAt: new Date(Date.now() - 86400000).toISOString(),
+      },
+    ],
+    tasks: [],
+    groups: [
+      {
+        id: "codex-epic",
+        name: "Codex epic",
+        projectId: "codex",
+        status: "active",
+      },
+      {
+        id: "opus-epic",
+        name: "Opus epic",
+        projectId: "opus",
+        status: "active",
+      },
+    ],
+    models: [
+      { instanceId: "codex", id: "gpt-6.1", label: "GPT-6.1" },
+      { instanceId: "claude", id: "opus-5.5", label: "Opus 5.5" },
+      { instanceId: "codex", id: "gpt-6-luna", label: "GPT-6 Luna" },
+    ],
+    settings: {
+      textShortcut: "CommandOrControl+Shift+1",
+      screenshotShortcut: "CommandOrControl+Shift+2",
+      lastProjectId: "codex",
+      lastGroupId: "codex-epic",
+      targetHistory: {
+        codex: {
+          lastUsedAt: new Date(Date.now() - 60000).toISOString(),
+          lastGroupId: "codex-epic",
+        },
       },
     },
-  },
-  connection: { connected: false },
-});
+    connection: { connected: false },
+  });
 test.beforeAll(async () => {
   if (process.env.TASKLINE_TEST_APP || process.env.TASKLINE_INSTALLED) return;
   server = await createServer({ server: { port: 0, strictPort: false } });
   await server.listen();
-  origin = server.resolvedUrls.local[0];
+  origin = server.resolvedUrls!.local[0];
 });
 test.afterAll(async () => {
   await server?.close();
@@ -221,8 +232,8 @@ test("epic and model controls have matching vertical bounds", async ({
   await page.getByRole("button", { name: "New task", exact: true }).click();
   const epic = await page.getByLabel("Epic", { exact: true }).boundingBox();
   const model = await page.getByLabel("Model", { exact: true }).boundingBox();
-  expect(Math.abs(epic.y - model.y)).toBeLessThanOrEqual(1);
-  expect(Math.abs(epic.height - model.height)).toBeLessThanOrEqual(1);
+  expect(Math.abs(epic!.y - model!.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(epic!.height - model!.height)).toBeLessThanOrEqual(1);
   await page.screenshot({ path: testInfo.outputPath("composer.png") });
 });
 

@@ -6,7 +6,7 @@ import { assetPath } from "../server/static-files.js";
 for (const [paths, directory] of [
   [posix, "/app/dist"],
   [win32, "C:\\app\\dist"],
-]) {
+] as const) {
   test(`${paths.sep} static assets stay inside the distribution directory`, () => {
     assert.equal(
       assetPath(directory, "/assets/app.js", paths),

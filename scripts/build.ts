@@ -17,7 +17,3 @@ execFileSync(
 copyFileSync("electron/region.html", "build/electron/region.html");
 mkdirSync("build/standalone", { recursive: true });
 copyFileSync("build/cli/taskline.js", "build/standalone/taskline.mjs");
-copyFileSync(
-  "build/scripts/install-cli.js",
-  "build/standalone/install-cli.mjs",
-);
