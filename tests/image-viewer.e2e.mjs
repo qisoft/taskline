@@ -180,6 +180,7 @@ test("opens board and task attachments in-app, supports zoom, Escape, focus retu
     exact: true,
   });
   await thumbnail.focus();
+  await expect(thumbnail).toBeFocused();
   await thumbnail.press("Enter");
   await expect(viewer(window)).toBeVisible();
   await expect(
