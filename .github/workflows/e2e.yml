@@ -1,0 +1,60 @@
+name: Targeted native E2E
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        type: choice
+        default: macos-15-intel
+        options: [macos-15-intel, macos-15]
+      suite:
+        type: choice
+        default: image-viewer
+        options:
+          [
+            image-viewer,
+            region-capture,
+            composer,
+            project-cli,
+            task-planning,
+            thread-targets,
+            board-access,
+            board-status,
+            release-smoke,
+          ]
+permissions:
+  contents: read
+jobs:
+  e2e:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      TASKLINE_CAPTURE_FIXTURE: "1"
+      TEST_SUITE: ${{ inputs.suite }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run package
+      - name: Select packaged executable
+        run: |
+          app_dir=$(node -p 'process.arch === "arm64" ? "mac-arm64" : "mac"')
+          echo "TASKLINE_TEST_APP=$GITHUB_WORKSPACE/release/$app_dir/Taskline.app/Contents/MacOS/Taskline" >> "$GITHUB_ENV"
+      - name: Run selected E2E fixture
+        run: |
+          case "$TEST_SUITE" in
+            image-viewer|region-capture|composer|project-cli|task-planning|thread-targets|board-access|board-status|release-smoke)
+              npm run test:e2e -- "tests/$TEST_SUITE.e2e.mjs" ;;
+            *) echo "Unsupported fixture"; exit 1 ;;
+          esac
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-${{ inputs.runner }}-${{ inputs.suite }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

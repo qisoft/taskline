@@ -10,6 +10,8 @@ Taskline's SQLite database is independent of T3. Never start a development T3 se
 
 ## Testing
 
+Use the **Targeted native E2E** GitHub Actions workflow for focused native checks, for example `gh workflow run e2e.yml -f suite=image-viewer -f runner=macos-15-intel`. It builds a signed unpacked app on the selected runner and runs only the chosen fixture.
+
 - Run E2E checks only in GitHub Actions or a separate test environment. Never launch E2E application windows or capture the screen on the developer's computer. Playwright refuses to load outside CI by default. Set `TASKLINE_REMOTE_TEST_ENV=1` only on a separate test machine; never use it or `CI=true` to bypass this restriction locally.
 - Run tests directly related to a change. `npm test` runs unit/API tests with local fixtures and fake providers.
 - Packaged smoke tests use `TASKLINE_TEST_APP=/path/to/executable npm run test:e2e -- tests/release-smoke.e2e.mjs` and isolated local state. Use your shell's environment-variable syntax on Windows.

@@ -179,9 +179,52 @@ test("opens board and task attachments in-app, supports zoom, Escape, focus retu
     name: "View image: Input screenshot.png",
     exact: true,
   });
+  await window.evaluate(() => {
+    globalThis.keyboardDiagnostics = [];
+    for (const type of ["keydown", "keyup", "click"])
+      document.addEventListener(
+        type,
+        (event) =>
+          globalThis.keyboardDiagnostics.push({
+            type,
+            key: event.key,
+            target: event.target?.outerHTML?.slice(0, 250),
+          }),
+        true,
+      );
+  });
+  await app.evaluate(({ BrowserWindow }) => {
+    globalThis.nativeKeyboardDiagnostics = [];
+    for (const window of BrowserWindow.getAllWindows())
+      window.webContents.on("before-input-event", (_, input) =>
+        globalThis.nativeKeyboardDiagnostics.push({
+          id: window.id,
+          key: input.key,
+          type: input.type,
+        }),
+      );
+  });
   await thumbnail.focus();
   await expect(thumbnail).toBeFocused();
   await thumbnail.press("Enter");
+  console.log(
+    "Keyboard diagnostic",
+    JSON.stringify({
+      renderer: await window.evaluate(() => ({
+        events: globalThis.keyboardDiagnostics,
+        focused: document.hasFocus(),
+        active: document.activeElement?.outerHTML?.slice(0, 250),
+      })),
+      native: await app.evaluate(({ BrowserWindow }) => ({
+        events: globalThis.nativeKeyboardDiagnostics,
+        windows: BrowserWindow.getAllWindows().map((w) => ({
+          id: w.id,
+          focused: w.isFocused(),
+          visible: w.isVisible(),
+        })),
+      })),
+    }),
+  );
   await expect(viewer(window)).toBeVisible();
   await expect(
     window.getByRole("dialog", { name: "Task details" }),
