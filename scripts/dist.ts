@@ -1,3 +1,4 @@
+import { asError } from "../shared/errors.js";
 import { copyFileSync } from "node:fs";
 import { build, Platform, Arch } from "electron-builder";
 import { resolve } from "node:path";
@@ -20,10 +21,31 @@ if (platform === "mac") {
   );
   signMac(app);
   await build({
-    targets: Platform.MAC.createTarget(["dmg", "zip"], arch),
+    targets: Platform.MAC.createTarget(["zip"], arch),
     prepackaged: app,
     publish: "never",
   });
+  // macOS can briefly keep the freshly built volume busy while indexing it.
+  // Retry that specific detach failure once; other packaging errors stay fatal.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await build({
+        targets: Platform.MAC.createTarget(["dmg"], arch),
+        prepackaged: app,
+        publish: "never",
+      });
+      break;
+    } catch (error) {
+      if (
+        attempt > 0 ||
+        !/Resource busy|couldn't eject|Unable to detach/i.test(
+          asError(error).message,
+        )
+      )
+        throw error;
+      console.warn("DMG volume was busy; retrying packaging once.");
+    }
+  }
 } else {
   await build({
     targets: Platform.WINDOWS.createTarget(["nsis", "zip"], arch),

@@ -36,3 +36,9 @@ document.addEventListener("mouseup", () => {
     window.taskline!.finishRegion(rectangle);
   else window.taskline!.cancelRegion();
 });
+
+// Keep renderer handling for input injected through Chromium, which may bypass
+// Electron's native before-input-event hook. Native Escape prevents propagation.
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") window.taskline!.cancelRegion();
+});
