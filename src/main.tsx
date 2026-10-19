@@ -1392,8 +1392,8 @@ function TaskDetail({
                       {item.title || item.id.slice(0, 20)}
                     </summary>
                     <pre>
-                      {typeof item.payload.input === "string"
-                        ? item.payload.input + "\n\n"
+                      {item.payload.input
+                        ? String(item.payload.input) + "\n\n"
                         : null}
                       {typeof item.text === "string"
                         ? item.text
