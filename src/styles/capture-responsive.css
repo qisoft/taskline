@@ -1,0 +1,111 @@
+.capture-surface {
+  background: #1c1c20;
+  border: 1px solid #3b3b45;
+  border-radius: 13px;
+  overflow: hidden;
+  min-height: 100vh;
+}
+.capture-surface > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 18px;
+  border-bottom: 1px solid #303036;
+  -webkit-app-region: drag;
+}
+.capture-surface > header button {
+  -webkit-app-region: no-drag;
+}
+.capture-surface > header > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.capture-surface .brand-mark {
+  width: 22px;
+  height: 22px;
+  font-size: 13px;
+}
+.capture-surface .composer-body > textarea {
+  min-height: 125px;
+}
+.capture-surface .composer-footer {
+  border-top: 1px solid #303036;
+}
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #36363e;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4b4b57;
+}
+@media (max-width: 1000px) {
+  .sidebar {
+    width: 190px;
+  }
+  .kanban-column {
+    min-width: 230px;
+  }
+  .page-title,
+  .board-toolbar {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+  .topbar {
+    padding: 0 22px;
+  }
+  .composer-tools > .small {
+    display: none;
+  }
+}
+
+.desktop .sidebar {
+  padding-top: 49px;
+}
+.desktop .topbar {
+  -webkit-app-region: drag;
+}
+.desktop .topbar button {
+  -webkit-app-region: no-drag;
+}
+
+.project-setting input:not([type]) {
+  width: 90px;
+  padding: 5px 7px;
+  font-size: 11px;
+}
+.capture-surface {
+  height: 100vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.capture-surface > header,
+.capture-surface > .composer-footer {
+  flex: none;
+}
+.capture-surface > .composer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.epic-field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
+}
+.epic-field-label .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}

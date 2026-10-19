@@ -5,12 +5,12 @@ export interface ProjectInput extends Partial<Settings> {
   commandId?: string;
   createWorkspaceRootIfMissing?: boolean;
 }
-import type { Scheduler } from "./scheduler.js";
-import type { Store } from "./store.js";
-import type { Settings, ProjectPolicy } from "../shared/types.js";
-import { asError } from "../shared/errors.js";
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
+import { asError } from "../shared/errors.js";
+import type { Settings } from "../shared/types.js";
+import type { Scheduler } from "./scheduler.js";
+import type { Store } from "./store.js";
 
 export function projectPolicy(input: ProjectInput) {
   const patch: Partial<Settings> = {};
@@ -72,7 +72,7 @@ export class ProjectService {
     // The pause policy exists before T3 publishes the new project to any client.
     const existing = this.store.get("settings", "project:" + id);
     const settings: Settings = {
-      ...(existing ?? {}),
+      ...existing,
       autoStart: false,
       ...projectPolicy(input),
       id: "project:" + id,

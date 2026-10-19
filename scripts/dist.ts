@@ -1,7 +1,7 @@
-import { asError } from "../shared/errors.js";
+import { Arch, build, Platform } from "electron-builder";
 import { copyFileSync } from "node:fs";
-import { build, Platform, Arch } from "electron-builder";
 import { resolve } from "node:path";
+import { asError } from "../shared/errors.js";
 import { signMac } from "./sign-mac.js";
 const [platform, flag = "--" + process.arch] = process.argv.slice(2);
 if (!["mac", "win"].includes(platform) || !["--arm64", "--x64"].includes(flag))

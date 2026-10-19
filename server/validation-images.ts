@@ -1,16 +1,16 @@
-import type { Store } from "./store.js";
-import type {
-  Evidence,
-  ImageReference,
-  ValidationImage,
-  ConnectionConfig,
-  Attempt,
-} from "../shared/types.js";
-import { asError } from "../shared/errors.js";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHash } from "node:crypto";
+import { asError } from "../shared/errors.js";
+import type {
+  Attempt,
+  ConnectionConfig,
+  Evidence,
+  ImageReference,
+  ValidationImage,
+} from "../shared/types.js";
+import type { Store } from "./store.js";
 
 const limit = 20 * 1024 * 1024;
 const imageExtension = /\.(?:png|jpe?g|webp|gif|avif|bmp)(?:[?#].*)?$/i;
@@ -142,7 +142,7 @@ export async function collectValidationImages(
       refs.slice(start, start + 4).map(async (source) => {
         try {
           const ref = source.reference;
-          const remote = /^https?:\/\//i.test(ref) || /^\/api\//.test(ref);
+          const remote = /^https?:\/\//i.test(ref) || ref.startsWith("/api/");
           let path = remote
             ? null
             : ref.startsWith("file:")

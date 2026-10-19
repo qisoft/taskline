@@ -1,14 +1,14 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  mkdtempSync,
   mkdirSync,
-  writeFileSync,
+  mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
 import { startServer } from "../server/index.js";
 
 test("local connection issues a scoped session through the configured native T3 CLI", async () => {

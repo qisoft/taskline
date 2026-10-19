@@ -1,5 +1,5 @@
-import { asError } from "../shared/errors.js";
 import { _electron as electron } from "@playwright/test";
+import { asError } from "../shared/errors.js";
 const env = Object.fromEntries(
   Object.entries(process.env).filter(
     (entry): entry is [string, string] => entry[1] !== undefined,

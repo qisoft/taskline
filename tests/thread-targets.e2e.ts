@@ -1,13 +1,12 @@
-import { seed } from "./helpers.js";
-import { tcpPort } from "./helpers.js";
 import type { ElectronApplication } from "@playwright/test";
-import { test, expect, _electron as electron } from "@playwright/test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
-import { tmpdir } from "node:os";
+import { _electron as electron, expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { startServer } from "../server/index.js";
+import { seed, tcpPort } from "./helpers.js";
 const exec = promisify(execFile);
 
 test("native composer and bundled CLI share task-level future threads, preserve explicit targets and restore selection", async ({}, testInfo) => {

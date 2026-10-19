@@ -1,11 +1,11 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { dataDirectory, toolCandidates } from "../server/platform.js";
-import { runCommand } from "../server/commands.js";
+import { test } from "node:test";
 import { installCli } from "../electron/cli-install.js";
+import { runCommand } from "../server/commands.js";
+import { dataDirectory, toolCandidates } from "../server/platform.js";
 
 test("data and provider locations follow native platform conventions and explicit overrides", () => {
   assert.equal(

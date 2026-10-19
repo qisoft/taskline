@@ -1,6 +1,6 @@
-import type { Store } from "./store.js";
-import type { Thread } from "../shared/types.js";
 import { randomUUID } from "node:crypto";
+import type { Thread } from "../shared/types.js";
+import type { Store } from "./store.js";
 
 // A key is project-scoped. Reserve the T3 ID locally; launch only on admission.
 // Call inside the transaction that saves the task so failed edits leave no binding.

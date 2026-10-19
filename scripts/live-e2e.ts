@@ -1,6 +1,6 @@
-import type { AppState, Epic, Task, TaskDetail } from "../shared/types.js";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import type { AppState, Epic, Task, TaskDetail } from "../shared/types.js";
 const origin = process.env.TASKLINE_TEST_ORIGIN || "http://127.0.0.1:4318";
 const call = async <T = unknown>(
   path: string,
@@ -10,7 +10,7 @@ const call = async <T = unknown>(
   const response = await fetch(origin + "/api" + path, {
     method,
     headers: body ? { "content-type": "application/json" } : {},
-    body: body ? JSON.stringify(body) : undefined,
+    ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const value = await response.json();
   if (!response.ok) throw Error(value.error);

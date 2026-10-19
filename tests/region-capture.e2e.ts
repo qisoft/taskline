@@ -1,10 +1,10 @@
-import { tcpPort } from "./helpers.js";
 import type { ElectronApplication, Page } from "@playwright/test";
-import { test, expect, _electron as electron } from "@playwright/test";
+import { _electron as electron, expect, test } from "@playwright/test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tcpPort } from "./helpers.js";
 let app: ElectronApplication, board: Page, directory: string;
 test.beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), "taskline-region-"));

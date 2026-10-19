@@ -1,7 +1,7 @@
-import { stateFixture, taskFixture } from "./helpers.js";
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { projectModel } from "../src/composer-defaults.js";
+import { stateFixture, taskFixture } from "./helpers.js";
 
 const state = () =>
   stateFixture({

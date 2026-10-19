@@ -1,5 +1,5 @@
-import { readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { readdirSync } from "node:fs";
 const files = readdirSync("tests")
   .filter((file) => file.endsWith(".test.ts"))
   .sort()

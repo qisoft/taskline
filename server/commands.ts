@@ -1,5 +1,5 @@
-import type { SpawnOptions } from "node:child_process";
 import spawn from "cross-spawn";
+import type { SpawnOptions } from "node:child_process";
 export { spawn };
 
 // cross-spawn handles Windows .cmd shims and argument quoting without asking

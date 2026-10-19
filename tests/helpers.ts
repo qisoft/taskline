@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 import type { Server } from "node:net";
-import type { T3Client } from "../server/t3.js";
 import type { Store } from "../server/store.js";
+import type { T3Client } from "../server/t3.js";
 import type {
+  AppSettings,
+  AppState,
+  ModelSelection,
+  Project,
+  ProjectPolicy,
+  StoreTables,
   T3RpcRequests,
   T3RpcResults,
-  Project,
-  StoreTables,
-  AppState,
-  AppSettings,
   Task,
   Thread,
-  ProjectPolicy,
-  ModelSelection,
 } from "../shared/types.js";
 
 export function tcpPort(server: Server) {

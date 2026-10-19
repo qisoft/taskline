@@ -1,6 +1,6 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { posix, win32 } from "node:path";
+import { test } from "node:test";
 import { assetPath } from "../server/static-files.js";
 
 for (const [paths, directory] of [

@@ -1,9 +1,0 @@
-node_modules/
-dist/
-release/
-artifacts/
-playwright-report/
-test-results/
-.data/
-package-lock.json
-build/

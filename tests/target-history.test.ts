@@ -1,13 +1,10 @@
-import { stateFixture, taskFixture } from "./helpers.js";
-import { seed } from "./helpers.js";
-import { tcpPort } from "./helpers.js";
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Store } from "../server/store.js";
+import { test } from "node:test";
 import { startServer } from "../server/index.js";
+import { Store } from "../server/store.js";
 import { recordTargetUsage } from "../server/target-history.js";
 import {
   defaultProject,
@@ -15,6 +12,7 @@ import {
   recentProjects,
   recentThreads,
 } from "../src/task-targets.js";
+import { seed, stateFixture, taskFixture, tcpPort } from "./helpers.js";
 
 const state = () =>
   stateFixture({

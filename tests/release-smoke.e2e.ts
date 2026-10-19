@@ -1,11 +1,11 @@
-import { runCommand } from "../server/commands.js";
-import { tcpPort } from "./helpers.js";
 import type { ElectronApplication } from "@playwright/test";
-import { test, expect, _electron as electron } from "@playwright/test";
+import { _electron as electron, expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
-import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { runCommand } from "../server/commands.js";
+import { tcpPort } from "./helpers.js";
 
 test("packaged app boots its own isolated SQLite backend and ships a working CLI", async () => {
   const executable = process.env.TASKLINE_TEST_APP;
@@ -41,7 +41,7 @@ test("packaged app boots its own isolated SQLite backend and ships a working CLI
     const origin = "http://127.0.0.1:" + port;
     const index = await (await page.request.get(origin)).text();
     const assets = [
-      ...index.matchAll(/(?:src|href)="([^\"]+\.(?:js|css))"/g),
+      ...index.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g),
     ].map((match) => match[1]);
     expect(assets.length).toBeGreaterThanOrEqual(2);
     for (const asset of assets) {

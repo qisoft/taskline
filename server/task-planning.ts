@@ -1,4 +1,4 @@
-import type { Task, Priority } from "../shared/types.js";
+import type { Priority, Task } from "../shared/types.js";
 export const priorities = [
   { value: "urgent", label: "Urgent" },
   { value: "high", label: "High" },

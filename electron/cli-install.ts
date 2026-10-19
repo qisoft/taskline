@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
   accessSync,
   appendFileSync,
@@ -11,7 +12,6 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 

@@ -1,0 +1,40 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "react"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    "typescript/no-explicit-any": "error"
+  },
+  "ignorePatterns": [
+    "build/**",
+    "dist/**",
+    "release/**",
+    "node_modules/**",
+    "artifacts/**",
+    "playwright-report/**",
+    "test-results/**",
+    ".data/**"
+  ],
+  "overrides": [
+    {
+      "files": ["tests/**/*.ts"],
+      "rules": {
+        "no-empty-pattern": [
+          "error",
+          {
+            "allowObjectPatternsAsParameters": true
+          }
+        ]
+      }
+    }
+  ]
+}

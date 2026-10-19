@@ -1,6 +1,6 @@
-import { homedir } from "node:os";
-import { join, win32, posix } from "node:path";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, posix, win32 } from "node:path";
 
 export function dataDirectory(
   platform = process.platform,

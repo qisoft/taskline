@@ -1,0 +1,225 @@
+.drawer-backdrop {
+  justify-content: flex-end;
+  backdrop-filter: none;
+  background: #0006;
+}
+.task-drawer {
+  height: 100%;
+  width: min(650px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: #19191d;
+  border-left: 1px solid #35353c;
+  box-shadow: -20px 0 70px #0004;
+}
+.task-drawer > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid #2e2e34;
+  flex: none;
+}
+.drawer-content {
+  padding: 25px 28px;
+  overflow-y: auto;
+  flex: 1;
+}
+.drawer-content > h1 {
+  font-size: 23px;
+  line-height: 1.4;
+  margin: 14px 0 22px;
+  overflow-wrap: anywhere;
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  border: 1px solid #44444d;
+  border-radius: 5px;
+  background: #2a2a33;
+  padding: 4px 7px;
+  color: #c3c3d0;
+}
+.status-review {
+  background: #8876c51a;
+  border-color: #8c7cc13d;
+  color: #c3b5ed;
+}
+.status-done {
+  background: #64a4831a;
+  border-color: #7fac923d;
+  color: #a7d7bc;
+}
+.status-failed {
+  color: #dfb490;
+}
+.detail-properties {
+  display: grid;
+  grid-template-columns: 95px minmax(0, 1fr);
+  gap: 12px;
+  font-size: 11px;
+  align-items: center;
+  margin-bottom: 26px;
+}
+.detail-properties > span {
+  color: #81818f;
+}
+.detail-properties strong {
+  font-size: 11px;
+  font-weight: 450;
+}
+.detail-properties select {
+  padding: 5px 7px;
+  font-size: 11px;
+}
+.workspace-path {
+  font-size: 9px;
+  overflow-wrap: anywhere;
+  color: #9292a2;
+}
+.detail-tabs {
+  display: flex;
+  gap: 19px;
+  border-bottom: 1px solid #303038;
+  margin-bottom: 7px;
+}
+.detail-tabs button {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 12px 0;
+  font-size: 11px;
+  color: #8d8d9b;
+}
+.detail-tabs button.active {
+  color: #dddde8;
+  border-bottom-color: #9992cf;
+}
+.detail-section {
+  padding: 20px 0;
+  border-bottom: 1px solid #2c2c33;
+}
+.detail-section h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #c9c9d4;
+  font-size: 12px;
+  margin-bottom: 11px;
+  gap: 9px;
+}
+.detail-section p,
+.detail-section li {
+  font-size: 12px;
+  color: #aaaab8;
+}
+.detail-section > textarea {
+  width: 100%;
+  margin-bottom: 9px;
+  font-size: 12px;
+}
+.detail-image {
+  width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+  object-position: left;
+  margin-top: 15px;
+  border-radius: 7px;
+  background: #101012;
+}
+.drawer-footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 15px 22px;
+  gap: 12px;
+  border-top: 1px solid #303036;
+}
+.drawer-footer .button,
+.drawer-footer .primary-button {
+  font-size: 11px;
+}
+.validation-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+}
+.validation-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.validation-row strong {
+  font-size: 11px;
+  font-weight: 450;
+  color: #c8c8d5;
+}
+.validation-row code {
+  color: #9a9aaa;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.validation-row .small {
+  font-size: 10px;
+}
+.validation-indicator {
+  display: flex;
+  align-items: center;
+  color: #8b8b98;
+  padding-top: 1px;
+}
+.validation-indicator.passed {
+  color: #8fbc9f;
+}
+.validation-indicator.failed {
+  color: #d59687;
+}
+.report-question {
+  padding: 10px 0;
+}
+.report-question p {
+  margin-bottom: 6px;
+}
+.question-section {
+  background: #d3a1540c;
+  padding: 16px;
+  border-radius: 7px;
+  border: 1px solid #b9905433;
+  margin-top: 17px;
+}
+.question-section > div {
+  margin-bottom: 12px;
+}
+.question-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+.question-field label {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #d0c2a7;
+}
+.question-section .primary-button {
+  font-size: 11px;
+}
+.evidence-item {
+  padding: 15px 0;
+  border-bottom: 1px solid #303036;
+}
+.evidence-item summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #bcbcc9;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.evidence-item p {
+  margin: 12px 0;
+  font-size: 12px;
+}
+.evidence-item code {
+  overflow-wrap: anywhere;
+}

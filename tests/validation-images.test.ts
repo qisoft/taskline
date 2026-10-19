@@ -1,17 +1,16 @@
-import { seed } from "./helpers.js";
-import { tcpPort } from "./helpers.js";
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { pathToFileURL } from "node:url";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { pathToFileURL } from "node:url";
 import { Store } from "../server/store.js";
 import {
   collectValidationImages,
   imageReferences,
 } from "../server/validation-images.js";
+import { seed, tcpPort } from "./helpers.js";
 const png = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV1cAAAAASUVORK5CYII=",
   "base64",

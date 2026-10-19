@@ -139,6 +139,9 @@ Requirements: Node.js 24+, npm, Git, and a native macOS or Windows machine for p
 git clone https://github.com/qisoft/taskline.git
 cd taskline
 npm ci
+npm run check:sources
+npm run lint
+npm run format:check
 npm run typecheck
 npm test
 npm run build

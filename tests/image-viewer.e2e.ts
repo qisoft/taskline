@@ -1,13 +1,12 @@
-import { seed } from "./helpers.js";
-import { tcpPort } from "./helpers.js";
 import type { ElectronApplication, Page } from "@playwright/test";
-import { test, expect, _electron as electron } from "@playwright/test";
+import { _electron as electron, expect, test } from "@playwright/test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { deflateSync } from "node:zlib";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { deflateSync } from "node:zlib";
 import { Store } from "../server/store.js";
+import { seed, tcpPort } from "./helpers.js";
 
 let app: ElectronApplication,
   window: Page,

@@ -1,16 +1,16 @@
-import type { Store } from "./store.js";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { asError } from "../shared/errors.js";
 import type {
   Evidence,
+  GroupReport,
   Projection,
   TaskReport,
-  GroupReport,
 } from "../shared/types.js";
-import { asError } from "../shared/errors.js";
 import { spawn } from "./commands.js";
 import { toolCommand } from "./platform.js";
-import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { createHash } from "node:crypto";
+import type { Store } from "./store.js";
 
 const object = (properties: Record<string, unknown>) => ({
   type: "object",
@@ -215,13 +215,11 @@ export class ReportWorker {
       });
       child.on("exit", (code) => {
         clearTimeout(timeout);
-        code === 0
-          ? resolve()
-          : reject(
-              Error(
-                "Codex summary failed (" + code + "): " + stderr.slice(-800),
-              ),
-            );
+        if (code === 0) resolve();
+        else
+          reject(
+            Error("Codex summary failed (" + code + "): " + stderr.slice(-800)),
+          );
       });
       child.stdin!.end(
         instruction +

@@ -1,12 +1,11 @@
-import { seed } from "./helpers.js";
-import { tcpPort } from "./helpers.js";
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { test } from "node:test";
 import { startServer } from "../server/index.js";
 import { Store } from "../server/store.js";
+import { seed, tcpPort } from "./helpers.js";
 
 async function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "taskline-planning-"));
@@ -27,7 +26,7 @@ async function fixture() {
     const response = await fetch(origin + "/api" + path, {
       method,
       headers: { "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     return { status: response.status, data: await response.json() };
   };

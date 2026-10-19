@@ -1,10 +1,10 @@
-import { tcpPort } from "./helpers.js";
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
 import { startServer } from "../server/index.js";
+import { tcpPort } from "./helpers.js";
 
 async function fixture(directory: string) {
   const runtime = await startServer({ port: 0, dataDir: directory });
@@ -29,7 +29,7 @@ async function fixture(directory: string) {
     const response = await fetch(origin + "/api" + path, {
       method,
       headers: { "content-type": "application/json" },
-      body: input === undefined ? undefined : JSON.stringify(input),
+      ...(input === undefined ? {} : { body: JSON.stringify(input) }),
     });
     return { status: response.status, data: await response.json() };
   };

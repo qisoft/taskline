@@ -1,7 +1,7 @@
 import type {
+  SelectionInput,
   Settings,
   TargetHistory,
-  SelectionInput,
 } from "../shared/types.js";
 export function recordTargetUsage<S extends Settings>(
   settings: S,

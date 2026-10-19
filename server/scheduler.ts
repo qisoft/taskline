@@ -1,46 +1,30 @@
-import type { T3Client } from "./t3.js";
-import type { Store } from "./store.js";
-import type {
-  Task,
-  Attempt,
-  ProjectPolicy,
-  Project,
-  Thread,
-  Projection,
-  Evidence,
-  Model,
-  Answers,
-} from "../shared/types.js";
-import { asError } from "../shared/errors.js";
-import { collectValidationImages } from "./validation-images.js";
-import { compareTaskPriority, pendingBlockers } from "./task-planning.js";
-import { randomUUID, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { asError } from "../shared/errors.js";
+import type {
+  Answers,
+  Attempt,
+  Model,
+  Project,
+  Projection,
+  ProjectPolicy,
+  Task,
+  Thread,
+} from "../shared/types.js";
 import {
+  conservativeReport,
   ReportWorker,
   snapshotEvidence,
-  conservativeReport,
 } from "./reports.js";
-
-const activeStates = new Set([
-  "reserved",
-  "preparing",
-  "starting",
-  "queued",
-  "running",
-  "waiting",
-  "recovering",
-  "collecting",
-]);
-const terminal = new Set([
-  "completed",
-  "failed",
-  "cancelled",
-  "interrupted",
-  "rolled_back",
-]);
+import { TaskExecution } from "./scheduler-execution.js";
+import { SchedulerReporting } from "./scheduler-reporting.js";
+import { activeStates, terminal } from "./scheduler-state.js";
+import type { Store } from "./store.js";
+import type { T3Client } from "./t3.js";
+import { compareTaskPriority, pendingBlockers } from "./task-planning.js";
 export class Scheduler {
+  private execution: TaskExecution;
+  private reporting: SchedulerReporting;
   projects: Project[] = [];
   threads: Thread[] = [];
   models: Model[] = [];
@@ -59,6 +43,8 @@ export class Scheduler {
     public notify: () => void,
   ) {
     this.reports = new ReportWorker(store, notify);
+    this.execution = new TaskExecution(this);
+    this.reporting = new SchedulerReporting(this);
     t3.on("disconnected", () => {
       this.connected = false;
       this.subscriptions.clear();
@@ -311,206 +297,21 @@ export class Scheduler {
       this.busy = false;
     }
   }
-  async admit(
+  admit(
     task: Task,
     policy: ProjectPolicy,
     workspace: string | null | undefined,
   ) {
-    const group = task.groupId ? this.store.get("groups", task.groupId) : null;
-    const prompt =
-      (group
-        ? "Shared epic context (version " +
-          group.contextVersion +
-          "):\n" +
-          group.context +
-          "\nAcceptance criteria:\n" +
-          (group.acceptanceCriteria ?? "") +
-          "\nConfirmed decisions:\n" +
-          JSON.stringify(group.decisions ?? []) +
-          "\n\n"
-        : "") +
-      "TASK:\n" +
-      task.prompt +
-      "\n\nWhen finished, report: what changed, how it was tested (commands and results), remaining work, and questions requiring my decision. Do not claim checks that were not performed.";
-    const attempt: Attempt = {
-      id: randomUUID(),
-      taskId: task.id,
-      projectId: task.projectId,
-      threadId: task.threadId ?? randomUUID(),
-      newThread:
-        !task.threadId ||
-        Boolean(
-          task.threadKey &&
-          !this.store.get("threadTargets", task.threadId)?.materializedAt,
-        ),
-      commandId: randomUUID(),
-      messageId: randomUUID(),
-      runId: null,
-      state: "reserved",
-      workspace,
-      compiledPrompt: prompt,
-      contextVersion: group?.contextVersion ?? null,
-      attachments: [],
-      createdAt: new Date().toISOString(),
-      model: task.model ?? policy.model,
-      instanceId: task.instanceId ?? policy.instanceId,
-      runtimeMode: policy.runtimeMode,
-      baseRef: policy.baseRef,
-    };
-    this.store.transaction(() => {
-      this.store.put("attempts", attempt);
-      this.store.update("tasks", task.id, {
-        status: "doing",
-        executionState: "reserved",
-        waitReason: null,
-        currentAttemptId: attempt.id,
-        validationImages: [],
-        validationImageIssues: [],
-        validationArtifactsCollectedAt: null,
-      });
-      this.store.event(task.id, "reserved", { attemptId: attempt.id });
-    });
-    this.notify();
-    await this.deliver(attempt);
+    return this.execution.admit(task, policy, workspace);
   }
-  async deliver(attempt: Attempt) {
-    const task = this.store.require("tasks", attempt.taskId);
-    try {
-      if (!attempt.attachments.length && task.attachments?.length) {
-        const attachments = [];
-        for (const image of task.attachments)
-          attachments.push(
-            await this.t3.upload({
-              ...image,
-              bytes: this.store.image(image.id),
-            }),
-          );
-        attempt = this.store.update("attempts", attempt.id, { attachments });
-      }
-      let projection;
-      if (attempt.newThread) {
-        const response = await this.t3.launch({
-          commandId: attempt.commandId,
-          threadId: attempt.threadId,
-          projectId: attempt.projectId,
-          title: task.threadKey || task.title,
-          modelSelection: {
-            instanceId: attempt.instanceId,
-            model: attempt.model,
-          },
-          runtimeMode: attempt.runtimeMode,
-          interactionMode: "default",
-          workspaceStrategy: {
-            type: "worktree",
-            baseRef: attempt.baseRef,
-            branch:
-              "taskline/" + task.id.slice(0, 8) + "-" + attempt.id.slice(0, 6),
-            startFromOrigin: false,
-          },
-          initialMessage: {
-            messageId: attempt.messageId,
-            text: attempt.compiledPrompt,
-            attachments: attempt.attachments,
-          },
-        });
-        projection = response.projection;
-      } else {
-        await this.t3.dispatch({
-          type: "message.dispatch",
-          createdBy: "user",
-          creationSource: "web",
-          commandId: attempt.commandId,
-          threadId: attempt.threadId,
-          messageId: attempt.messageId,
-          text: attempt.compiledPrompt,
-          attachments: attempt.attachments,
-          modelSelection: {
-            instanceId: attempt.instanceId,
-            model: attempt.model,
-          },
-          dispatchMode: { type: "queue_after_active" },
-        });
-        projection = await this.t3.snapshot(attempt.threadId);
-      }
-      this.observeThread(projection);
-      const run = projection.runs.find(
-        (r) => r.userMessageId === attempt.messageId,
-      );
-      if (!run)
-        throw Error("Accepted command has not materialized its run yet");
-      this.store.update("attempts", attempt.id, {
-        runId: run.id,
-        state: run.status,
-        workspace:
-          projection.thread.worktreePath ??
-          this.projects.find((p) => p.id === attempt.projectId)?.workspaceRoot,
-      });
-      this.store.update("tasks", task.id, {
-        threadId: attempt.threadId,
-        executionState: run.status,
-      });
-      this.store.event(task.id, "dispatched", {
-        threadId: attempt.threadId,
-        runId: run.id,
-      });
-      this.watch(attempt.threadId);
-      this.notify();
-    } catch (caught) {
-      const e = asError(caught);
-      const definitive =
-        /invalid|not found|does not exist|rejected|disabled|Schema|Parse|base ref|Failed to launch|scope/i.test(
-          e.message,
-        ) && !/timed out|disconnected/i.test(e.message);
-      this.store.update("attempts", attempt.id, {
-        state: definitive ? "failed" : "recovering",
-        error: e.message,
-      });
-      this.store.update("tasks", task.id, {
-        status: definitive ? "failed" : "doing",
-        executionState: definitive ? "failed" : "recovering",
-        error: e.message,
-      });
-      this.store.event(task.id, "dispatch_error", {
-        error: e.message,
-        uncertain: !definitive,
-      });
-      this.notify();
-    }
+  deliver(attempt: Attempt) {
+    return this.execution.deliver(attempt);
   }
   observeThread(projection: Projection) {
-    const thread = projection.thread;
-    const target = this.store.get("threadTargets", thread.id);
-    if (
-      target &&
-      target.projectId === thread.projectId &&
-      !target.materializedAt
-    )
-      this.store.update("threadTargets", target.id, {
-        materializedAt: new Date().toISOString(),
-      });
-    // Shell snapshots are refreshed less often than turns finish. Use the fresh
-    // projection so the next queued task can reuse the thread immediately.
-    const active = projection.runs.find((r) => !terminal.has(r.status));
-    const cached = this.threads.find((t) => t.id === thread.id);
-    this.threads = this.threads.filter((t) => t.id !== thread.id);
-    this.threads.push({
-      ...cached,
-      ...thread,
-      activeRunId:
-        "activeRunId" in thread ? thread.activeRunId : (active?.id ?? null),
-      status: thread.status ?? active?.status ?? "idle",
-    });
+    return this.execution.observeThread(projection);
   }
-  async watch(threadId: string) {
-    if (this.subscriptions.has(threadId)) return;
-    try {
-      const unsubscribe = await this.t3.subscribe(
-        "orchestration.subscribeThread",
-        { threadId, acceptBoundedSnapshot: true },
-        () => this.signal(),
-      );
-      this.subscriptions.set(threadId, unsubscribe);
-    } catch {}
+  watch(threadId: string) {
+    return this.execution.watch(threadId);
   }
   async reconcile(attempt: Attempt) {
     this.watch(attempt.threadId);
@@ -651,215 +452,25 @@ export class Scheduler {
       this.queueTaskReport(attempt.id);
     } else this.notify();
   }
-  async enrichEvidence(a: Pick<Attempt, "evidence" | "threadId">) {
-    const enriched = [];
-    for (let start = 0; start < (a.evidence ?? []).length; start += 4) {
-      const batch = await Promise.all(
-        (a.evidence ?? []).slice(start, start + 4).map(async (item) => {
-          if (["command_execution", "file_change"].includes(item.type)) {
-            try {
-              const full = await this.t3.call("orchestration.getTurnItem", {
-                threadId: a.threadId,
-                itemId: item.id,
-              });
-              if (full.item)
-                return {
-                  ...item,
-                  text:
-                    full.item.text ??
-                    full.item.output ??
-                    full.item.diffStr ??
-                    "",
-                  payload: full.item,
-                };
-            } catch {}
-          }
-          return item;
-        }),
-      );
-      enriched.push(...batch);
-    }
-    return enriched;
+  enrichEvidence(a: Pick<Attempt, "evidence" | "threadId">) {
+    return this.reporting.enrichEvidence(a);
   }
-  async captureValidationImages(a: Attempt, persist = true) {
-    const artifacts = await collectValidationImages(
-      this.store,
-      a,
-      this.t3.config,
-    );
-    if (persist) {
-      this.store.update("attempts", a.id, artifacts);
-      const task = this.store.get("tasks", a.taskId);
-      if (task?.currentAttemptId === a.id)
-        this.store.update("tasks", task.id, artifacts);
-      this.notify();
-    }
-    return artifacts;
+  captureValidationImages(a: Attempt, persist = true) {
+    return this.reporting.captureValidationImages(a, persist);
   }
-  queueTaskReport(attemptId: string) {
-    this.reports.enqueue({
-      key: "task:" + attemptId,
-      run: async () => {
-        let a = this.store.require("attempts", attemptId);
-        if (!a.evidenceEnriched)
-          a = this.store.update("attempts", a.id, {
-            evidence: await this.enrichEvidence(a),
-            evidenceEnriched: true,
-          });
-        const report = await this.reports.extract("task", {
-          taskId: a.taskId,
-          attemptId: a.id,
-          prompt: a.compiledPrompt,
-          evidence: a.evidence ?? [],
-          status: a.state,
-        });
-        this.store.update("attempts", a.id, {
-          result: report,
-          reportState: "ready",
-          reportError: null,
-        });
-        const task = this.store.get("tasks", a.taskId);
-        if (task && task.currentAttemptId === a.id)
-          this.store.update("tasks", task.id, {
-            report,
-            reportState: "ready",
-            reportError: null,
-          });
-        this.notify();
-        if (task?.groupId) this.queueGroupReport(task.groupId);
-      },
-      fail: (e) => {
-        const a = this.store.require("attempts", attemptId);
-        this.store.update("attempts", attemptId, {
-          reportState: "error",
-          reportError: e.message,
-        });
-        const task = this.store.get("tasks", a.taskId);
-        if (task && task.currentAttemptId === attemptId)
-          this.store.update("tasks", task.id, {
-            reportState: "error",
-            reportError: e.message,
-          });
-        this.notify();
-      },
-    });
+  queueTaskReport(attemptId: string): void {
+    this.reporting.queueTaskReport(attemptId);
   }
-  queueGroupReport(groupId: string) {
-    const group = this.store.get("groups", groupId);
-    if (!group) return;
-    this.store.update("groups", groupId, { summaryState: "pending" });
-    this.reports.enqueue({
-      key: "group:" + groupId,
-      run: async () => {
-        const g = this.store.get("groups", groupId);
-        if (!g) return;
-        const tasks = this.store
-          .list("tasks")
-          .filter((t) => t.groupId === groupId);
-        const input = {
-          groupId,
-          context: g.context,
-          contextVersion: g.contextVersion,
-          decisions: g.decisions ?? [],
-          tasks: tasks.map((t) => ({
-            id: t.id,
-            title: t.title,
-            prompt: (t.originalPrompt ?? t.prompt).slice(0, 12000),
-            status: t.status,
-            resultVersion: t.resultVersion,
-            report: t.report ?? null,
-          })),
-        };
-        const hash = createHash("sha256")
-          .update(JSON.stringify(input))
-          .digest("hex");
-        const report = await this.reports.extract("group", input);
-        const current = this.store.get("groups", groupId);
-        if (!current) return;
-        const currentTasks = this.store
-          .list("tasks")
-          .filter((t) => t.groupId === groupId);
-        const currentInput = {
-          ...input,
-          context: current.context,
-          contextVersion: current.contextVersion,
-          decisions: current.decisions ?? [],
-          tasks: currentTasks.map((t) => ({
-            id: t.id,
-            title: t.title,
-            prompt: (t.originalPrompt ?? t.prompt).slice(0, 12000),
-            status: t.status,
-            resultVersion: t.resultVersion,
-            report: t.report ?? null,
-          })),
-        };
-        if (
-          createHash("sha256")
-            .update(JSON.stringify(currentInput))
-            .digest("hex") !== hash
-        ) {
-          this.queueGroupReport(groupId);
-          return;
-        }
-        this.store.update("groups", groupId, {
-          summary: report,
-          summaryState: "ready",
-          summaryError: null,
-        });
-        this.notify();
-      },
-      fail: (e) => {
-        if (!this.store.get("groups", groupId)) return;
-        this.store.update("groups", groupId, {
-          summaryState: "error",
-          summaryError: e.message,
-        });
-        this.notify();
-      },
-    });
+  queueGroupReport(groupId: string): void {
+    this.reporting.queueGroupReport(groupId);
   }
-  async respond(taskId: string, requestId: string, answers: Answers) {
-    const task = this.store.require("tasks", taskId);
-    const a = this.store.require("attempts", task.currentAttemptId);
-    await this.t3.dispatch({
-      type: "runtime-request.respond",
-      commandId: randomUUID(),
-      threadId: a.threadId,
-      requestId,
-      answers,
-    });
-    this.store.event(taskId, "answered", { requestId, answers });
-    this.signal();
+  respond(taskId: string, requestId: string, answers: Answers) {
+    return this.execution.respond(taskId, requestId, answers);
   }
-  async approve(taskId: string, requestId: string, decision: string) {
-    const task = this.store.require("tasks", taskId);
-    if (!task.threadId) throw Error("Task has no execution thread");
-    await this.t3.dispatch({
-      type: "runtime-request.respond",
-      commandId: randomUUID(),
-      threadId: task.threadId,
-      requestId,
-      decision,
-    });
-    this.signal();
+  approve(taskId: string, requestId: string, decision: string) {
+    return this.execution.approve(taskId, requestId, decision);
   }
-  async cancel(taskId: string) {
-    const task = this.store.require("tasks", taskId);
-    const a = task.currentAttemptId
-      ? this.store.get("attempts", task.currentAttemptId)
-      : null;
-    if (a && activeStates.has(a.state)) {
-      await this.t3.dispatch({
-        type: "thread.stop",
-        commandId: randomUUID(),
-        threadId: a.threadId,
-      });
-      this.signal();
-    } else
-      this.store.update("tasks", taskId, {
-        status: "cancelled",
-        executionState: "cancelled",
-      });
-    this.notify();
+  cancel(taskId: string) {
+    return this.execution.cancel(taskId);
   }
 }

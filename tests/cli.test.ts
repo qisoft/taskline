@@ -1,32 +1,46 @@
-import { mockProjectCreation } from "./helpers.js";
-import { tcpPort } from "./helpers.js";
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { test } from "node:test";
 import { startServer } from "../server/index.js";
+import { mockProjectCreation, tcpPort } from "./helpers.js";
 const cli = resolve("build/standalone/taskline.mjs");
-function run(args: string[], origin: string, input = "", cwd = process.cwd()) {
+function run(
+  args: string[],
+  origin: string,
+  input = "",
+  cwd = process.cwd(),
+  json = true,
+) {
   return new Promise<{
     code: number | null;
     out: string;
     err: string;
     data: ReturnType<typeof JSON.parse>;
   }>((resolve) => {
-    const child = spawn(process.execPath, [cli, ...args, "--json"], {
-      cwd,
-      env: { ...process.env, TASKLINE_URL: origin },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const child = spawn(
+      process.execPath,
+      [cli, ...args, ...(json ? ["--json"] : [])],
+      {
+        cwd,
+        env: { ...process.env, TASKLINE_URL: origin },
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
     let out = "",
       err = "";
     child.stdout.on("data", (c) => (out += c));
     child.stderr.on("data", (c) => (err += c));
     child.stdin.end(input);
     child.on("close", (code) =>
-      resolve({ code, out, err, data: code === 0 ? JSON.parse(out) : null }),
+      resolve({
+        code,
+        out,
+        err,
+        data: code === 0 && json ? JSON.parse(out) : null,
+      }),
     );
   });
 }
@@ -100,6 +114,20 @@ test("CLI manages paused planning projects, epics, stdin tasks, updates and stat
     ]);
     assert.equal(rows.length, 1);
     assert.equal(rows[0].id, task.id);
+    const plain = await run(
+      ["task", "list", "--project", p.id],
+      origin,
+      "",
+      process.cwd(),
+      false,
+    );
+    assert.equal(plain.code, 0, plain.err);
+    assert.match(
+      plain.out,
+      new RegExp("TL-" + task.id.slice(0, 4).toUpperCase()),
+    );
+    assert.match(plain.out, /todo\tnormal\t\tFirst task/);
+
     await ok([
       "task",
       "update",

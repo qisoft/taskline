@@ -1,17 +1,17 @@
+import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
+import WebSocket from "ws";
+import { asError } from "../shared/errors.js";
 import type {
   ConnectionConfig,
-  T3RpcResults,
-  T3RpcRequests,
-  ThreadLaunchInput,
   OrchestrationCommand,
-  UploadedImage,
   Project,
+  T3RpcRequests,
+  T3RpcResults,
   Thread,
+  ThreadLaunchInput,
+  UploadedImage,
 } from "../shared/types.js";
-import { asError } from "../shared/errors.js";
-import WebSocket from "ws";
-import { EventEmitter } from "node:events";
-import { randomUUID } from "node:crypto";
 
 interface Pending {
   timeout?: ReturnType<typeof setTimeout>;
@@ -62,7 +62,7 @@ export class T3Client extends EventEmitter {
         reject(e);
       });
       socket.on("close", () => {
-        for (const [id, p] of this.pending) {
+        for (const p of this.pending.values()) {
           clearTimeout(p.timeout);
           p.reject?.(Error("T3 disconnected"));
         }

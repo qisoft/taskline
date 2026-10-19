@@ -1,12 +1,11 @@
-import { seed } from "./helpers.js";
-import { tcpPort } from "./helpers.js";
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Store } from "../server/store.js";
+import { test } from "node:test";
 import { startServer } from "../server/index.js";
+import { Store } from "../server/store.js";
+import { seed, tcpPort } from "./helpers.js";
 
 test("legacy epics inherit only an unambiguous project", () => {
   const dir = mkdtempSync(join(tmpdir(), "taskline-epics-"));
@@ -45,7 +44,7 @@ test("API enforces project ownership on epic creation and task assignment", asyn
     const res = await fetch(origin + "/api" + path, {
       method,
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     return { status: res.status, data: await res.json() };
   };

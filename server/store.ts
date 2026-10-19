@@ -1,19 +1,19 @@
-import type {
-  StoreTables,
-  ConnectionConfig,
-  ImageAttachment,
-} from "../shared/types.js";
-import { asError } from "../shared/errors.js";
-import { DatabaseSync } from "node:sqlite";
+import { randomUUID } from "node:crypto";
 import {
-  mkdirSync,
-  writeFileSync,
-  readFileSync,
-  existsSync,
   chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
+import { asError } from "../shared/errors.js";
+import type {
+  ConnectionConfig,
+  ImageAttachment,
+  StoreTables,
+} from "../shared/types.js";
 
 export class Store {
   blobDirectory: string;

@@ -1,14 +1,13 @@
-import { seed } from "./helpers.js";
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { T3Client } from "../server/t3.js";
-import { mockProjectCreation } from "./helpers.js";
-import { Store } from "../server/store.js";
-import { Scheduler } from "../server/scheduler.js";
+import { test } from "node:test";
 import { ProjectService } from "../server/projects.js";
+import { Scheduler } from "../server/scheduler.js";
+import { Store } from "../server/store.js";
+import { T3Client } from "../server/t3.js";
+import { mockProjectCreation, seed } from "./helpers.js";
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "taskline-mode-"));
   const store = new Store(directory);
@@ -88,7 +87,8 @@ test("project creation persists Paused before publishing to T3 and preserves it 
   const f = fixture();
   try {
     let command:
-      import("../shared/types.js").T3RpcRequests["projects.mutate"] | undefined;
+      | import("../shared/types.js").T3RpcRequests["projects.mutate"]
+      | undefined;
     mockProjectCreation(f.t3, async (input) => {
       assert.equal(
         f.store.settings("project:" + input.projectId).autoStart,

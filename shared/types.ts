@@ -1,6 +1,11 @@
 export type Priority = "urgent" | "high" | "normal" | "low" | "none";
 export type TaskStatus =
-  "todo" | "doing" | "review" | "done" | "failed" | "cancelled";
+  | "todo"
+  | "doing"
+  | "review"
+  | "done"
+  | "failed"
+  | "cancelled";
 export type ReportState = "idle" | "pending" | "ready" | "error";
 export interface ImageAttachment {
   id: string;

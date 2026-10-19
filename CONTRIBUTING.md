@@ -28,3 +28,5 @@ Explain the concrete problem, resulting behavior and checks actually performed. 
 ## Releases
 
 Maintainers use matching `v<package version>` tags. The build workflow validates the tag, builds all supported targets and publishes only after every build and smoke test succeeds. Distribution publishing and client self-updates are separate features; Taskline currently supports the former.
+
+All text files must stay within 500 lines, including sources, tests, styles, comments and blank lines. Only generated `package-lock.json` is exempt. Keep modules focused on a feature or responsibility. `npm run check:sources` enforces the limit and rejects JavaScript source files. Use `npm run lint` for Oxlint, `npm run format` for Oxfmt, and `npm run format:check` to check formatting. CI runs these checks on every push and pull request.

@@ -1,12 +1,11 @@
-import { seed } from "./helpers.js";
-import { tcpPort } from "./helpers.js";
 import type { ElectronApplication, Page } from "@playwright/test";
-import { test, expect, _electron as electron } from "@playwright/test";
-import { createServer } from "node:net";
+import { _electron as electron, expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "../server/store.js";
+import { seed, tcpPort } from "./helpers.js";
 
 let app: ElectronApplication, page: Page, directory: string;
 test.beforeAll(async () => {
