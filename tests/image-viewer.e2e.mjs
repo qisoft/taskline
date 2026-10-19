@@ -173,58 +173,29 @@ const viewer = (page) =>
 const assertNoBrowser = async () =>
   expect(await app.evaluate(() => globalThis.externalUrls)).toEqual([]);
 
+// CDP key dispatch can be dropped between packaged apps on hosted Intel Macs.
+// Exercise Electron's native input path against the actual focused webContents.
+async function pressNativeKey(page, keyCode) {
+  const nativeWindow = await app.browserWindow(page);
+  await expect
+    .poll(() => nativeWindow.evaluate((w) => w.isFocused()))
+    .toBe(true);
+  await nativeWindow.evaluate((w, keyCode) => {
+    w.webContents.focus();
+    w.webContents.sendInputEvent({ type: "keyDown", keyCode });
+    w.webContents.sendInputEvent({ type: "keyUp", keyCode });
+  }, keyCode);
+}
+
 test("opens board and task attachments in-app, supports zoom, Escape, focus return and backdrop close", async () => {
   const card = window.getByRole("article", { name: title, exact: true });
   const thumbnail = card.getByRole("button", {
     name: "View image: Input screenshot.png",
     exact: true,
   });
-  await window.evaluate(() => {
-    globalThis.keyboardDiagnostics = [];
-    for (const type of ["keydown", "keyup", "click"])
-      document.addEventListener(
-        type,
-        (event) =>
-          globalThis.keyboardDiagnostics.push({
-            type,
-            key: event.key,
-            target: event.target?.outerHTML?.slice(0, 250),
-          }),
-        true,
-      );
-  });
-  await app.evaluate(({ BrowserWindow }) => {
-    globalThis.nativeKeyboardDiagnostics = [];
-    for (const window of BrowserWindow.getAllWindows())
-      window.webContents.on("before-input-event", (_, input) =>
-        globalThis.nativeKeyboardDiagnostics.push({
-          id: window.id,
-          key: input.key,
-          type: input.type,
-        }),
-      );
-  });
   await thumbnail.focus();
   await expect(thumbnail).toBeFocused();
-  await thumbnail.press("Enter");
-  console.log(
-    "Keyboard diagnostic",
-    JSON.stringify({
-      renderer: await window.evaluate(() => ({
-        events: globalThis.keyboardDiagnostics,
-        focused: document.hasFocus(),
-        active: document.activeElement?.outerHTML?.slice(0, 250),
-      })),
-      native: await app.evaluate(({ BrowserWindow }) => ({
-        events: globalThis.nativeKeyboardDiagnostics,
-        windows: BrowserWindow.getAllWindows().map((w) => ({
-          id: w.id,
-          focused: w.isFocused(),
-          visible: w.isVisible(),
-        })),
-      })),
-    }),
-  );
+  await pressNativeKey(window, "Enter");
   await expect(viewer(window)).toBeVisible();
   await expect(
     window.getByRole("dialog", { name: "Task details" }),
@@ -249,7 +220,7 @@ test("opens board and task attachments in-app, supports zoom, Escape, focus retu
       .getByRole("img")
       .evaluate((img) => img.getBoundingClientRect().width),
   ).toBeLessThan(1800);
-  await window.keyboard.press("Escape");
+  await pressNativeKey(window, "Escape");
   await expect(viewer(window)).toBeHidden();
   await expect(thumbnail).toBeFocused();
   await card.getByRole("heading", { name: title }).click();
@@ -259,7 +230,7 @@ test("opens board and task attachments in-app, supports zoom, Escape, focus retu
     .click();
   await expect(viewer(window)).toBeVisible();
   await expect(window.locator("#root")).toHaveJSProperty("inert", true);
-  await window.keyboard.press("Escape");
+  await pressNativeKey(window, "Escape");
   await expect(viewer(window)).toBeHidden();
   await expect(detail).toBeVisible();
   await expect(window.locator("#root")).toHaveJSProperty("inert", false);
@@ -293,11 +264,11 @@ test("opens current validation screenshots and attempt history in the same viewe
     .getByRole("button", { name: "View image: Result screenshot.png" })
     .click();
   await expect(viewer(window)).toBeVisible();
-  await window.keyboard.press("Tab");
+  await pressNativeKey(window, "Tab");
   await expect(
     viewer(window).getByRole("button", { name: "View image at actual size" }),
   ).toBeFocused();
-  await window.keyboard.press("Escape");
+  await pressNativeKey(window, "Escape");
   await expect(detail).toBeVisible();
   await window.getByRole("button", { name: "Close details" }).click();
   await assertNoBrowser();
@@ -315,7 +286,7 @@ test("previews attachments in board and global capture composers without losing 
     .getByRole("button", { name: "View image: composer.png" })
     .click();
   await expect(viewer(window)).toBeVisible();
-  await window.keyboard.press("Escape");
+  await pressNativeKey(window, "Escape");
   await expect(composer.getByLabel("Task prompt")).toHaveValue(
     "Keep this draft",
   );
@@ -331,7 +302,7 @@ test("previews attachments in board and global capture composers without losing 
     .getByRole("button", { name: "View image: composer.png" })
     .click();
   await expect(viewer(capture)).toBeVisible();
-  await capture.keyboard.press("Escape");
+  await pressNativeKey(capture, "Escape");
   await expect(viewer(capture)).toBeHidden();
   await expect(capture.getByLabel("Task prompt")).toHaveValue(
     "Keep the global capture draft",

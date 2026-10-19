@@ -289,13 +289,7 @@ function ImagePreview({
         event.stopPropagation();
         openImage?.(image);
       }}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key === "Enter") {
-          event.preventDefault();
-          openImage?.(image);
-        }
-      }}
+      onKeyDown={(event) => event.stopPropagation()}
     >
       <img
         className={className}
