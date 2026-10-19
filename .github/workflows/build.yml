@@ -74,17 +74,12 @@ jobs:
           TASKLINE_TEST_APP: ${{ github.workspace }}/${{ matrix.executable }}
       - name: Packaged macOS E2E (isolated fixtures, no agents)
         if: matrix.platform == 'mac'
-        run: >-
-          npm run test:e2e --
-          tests/release-smoke.e2e.mjs
-          tests/project-cli.e2e.mjs
-          tests/task-planning.e2e.mjs
-          tests/thread-targets.e2e.mjs
-          tests/composer.e2e.mjs
-          tests/image-viewer.e2e.mjs
-          tests/board-status.e2e.mjs
-          tests/board-access.e2e.mjs
-          tests/region-capture.e2e.mjs
+        run: |
+          # Keep each packaged-app fixture in its own Playwright process.
+          # Reused Electron drivers can stop delivering keyboard input on Intel Macs.
+          for suite in release-smoke project-cli task-planning thread-targets composer image-viewer board-status board-access region-capture; do
+            npm run test:e2e -- "tests/$suite.e2e.mjs" --output="test-results/$suite"
+          done
         env:
           TASKLINE_TEST_APP: ${{ github.workspace }}/${{ matrix.executable }}
           TASKLINE_CAPTURE_FIXTURE: "1"
