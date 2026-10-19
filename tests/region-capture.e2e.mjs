@@ -24,6 +24,35 @@ test.beforeAll(async () => {
     args: ["--user-data-dir=" + join(directory, "electron")],
     env,
   });
+  if (process.env.TASKLINE_CAPTURE_FIXTURE) {
+    // Hosted CI has no screen-recording grant. Exercise native overlays, input
+    // and cropping with deterministic pixels on each runner display.
+    await app.evaluate(({ desktopCapturer, screen, nativeImage }) => {
+      desktopCapturer.getSources = async () =>
+        screen.getAllDisplays().map((display) => {
+          const width = Math.round(display.bounds.width * display.scaleFactor);
+          const height = Math.round(
+            display.bounds.height * display.scaleFactor,
+          );
+          const pixels = Buffer.alloc(width * height * 4);
+          for (let y = 0; y < height; y++)
+            for (let x = 0; x < width; x++) {
+              const offset = (y * width + x) * 4;
+              pixels[offset] = x % 256;
+              pixels[offset + 1] = y % 256;
+              pixels[offset + 2] = (x + y) % 256;
+              pixels[offset + 3] = 255;
+            }
+          return {
+            id: "screen:" + display.id,
+            name: "CI capture fixture",
+            display_id: String(display.id),
+            thumbnail: nativeImage.createFromBitmap(pixels, { width, height }),
+            appIcon: null,
+          };
+        });
+    });
+  }
   board = await app.firstWindow();
   await expect(board.locator(".kanban")).toBeVisible();
 });
@@ -88,10 +117,13 @@ test("capture overlay covers full display bounds including the left Dock and men
 });
 test("capture selection is available on every connected monitor and crops its actual pixels", async () => {
   const displays = (await geometry()).displays;
-  expect(
-    displays.length,
-    "this regression requires the user's multi-monitor setup",
-  ).toBeGreaterThan(1);
+  if (process.env.TASKLINE_CAPTURE_FIXTURE)
+    expect(displays.length).toBeGreaterThanOrEqual(1);
+  else
+    expect(
+      displays.length,
+      "this regression requires a separate multi-monitor test environment",
+    ).toBeGreaterThan(1);
   for (const selected of displays) {
     await board.evaluate(() => window.taskline.captureRegion());
     const state = await geometry();

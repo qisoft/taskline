@@ -68,9 +68,26 @@ jobs:
       - run: npm test
       - run: npm run dist:${{ matrix.platform }} -- --${{ matrix.arch }}
       - name: Packaged application smoke test (no agents)
+        if: matrix.platform == 'win'
         run: npm run test:e2e -- tests/release-smoke.e2e.mjs
         env:
-          TASKLINE_TEST_APP: ${{ matrix.executable }}
+          TASKLINE_TEST_APP: ${{ github.workspace }}/${{ matrix.executable }}
+      - name: Packaged macOS E2E (isolated fixtures, no agents)
+        if: matrix.platform == 'mac'
+        run: >-
+          npm run test:e2e --
+          tests/release-smoke.e2e.mjs
+          tests/project-cli.e2e.mjs
+          tests/task-planning.e2e.mjs
+          tests/thread-targets.e2e.mjs
+          tests/composer.e2e.mjs
+          tests/image-viewer.e2e.mjs
+          tests/board-status.e2e.mjs
+          tests/board-access.e2e.mjs
+          tests/region-capture.e2e.mjs
+        env:
+          TASKLINE_TEST_APP: ${{ github.workspace }}/${{ matrix.executable }}
+          TASKLINE_CAPTURE_FIXTURE: "1"
       - name: Upload distributions
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

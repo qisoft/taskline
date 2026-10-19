@@ -10,11 +10,12 @@ Taskline's SQLite database is independent of T3. Never start a development T3 se
 
 ## Testing
 
+- Run E2E checks only in GitHub Actions or a separate test environment. Never launch E2E application windows or capture the screen on the developer's computer.
 - Run tests directly related to a change. `npm test` runs unit/API tests with local fixtures and fake providers.
 - Packaged smoke tests use `TASKLINE_TEST_APP=/path/to/executable npm run test:e2e -- tests/release-smoke.e2e.mjs` and isolated local state. Use your shell's environment-variable syntax on Windows.
 - Native UI fixtures such as `task-planning.e2e.mjs` and `project-cli.e2e.mjs` run without real provider turns.
 - `desktop.e2e.mjs` and `scripts/live-e2e.ts` launch real agents, use subscriptions and modify a designated disposable T3 project. Do not run them against personal workspaces or as default CI checks.
-- Screen-region checks require an unlocked interactive desktop and, on macOS, Screen Recording permission. Do not equate a headless smoke test with proof of physical global-key dispatch or screen capture.
+- CI runs the complete macOS native fixture suite with `TASKLINE_CAPTURE_FIXTURE=1`, using deterministic image sources on the runner's displays. Physical multi-monitor capture checks require a separate unlocked test machine and macOS Screen Recording permission. A fixture pass does not prove physical global-key dispatch or capture on another machine.
 
 Preserve thread serialization, project limits, workspace protection, stable attempt IDs, and frozen prompt/context snapshots. Keep observed evidence distinct from model-generated summaries.
 
