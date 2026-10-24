@@ -88,7 +88,7 @@ taskline task add --project website --epic Checkout --thread-key checkout-api --
 taskline task add --project website --epic Checkout --thread-key checkout-api --prompt-file api-tests.md
 taskline task add --project website --epic Checkout --thread-key checkout-ui --prompt "Implement the UI"
 taskline task list --project website --json
-taskline project activate website
+taskline epic activate Checkout --project website
 ```
 
 New CLI-created projects default to **Paused**:
@@ -99,7 +99,31 @@ taskline project set "My project" --limit 3 --base main
 taskline project activate "My project"
 ```
 
-Pausing a project prevents new starts and lets existing turns finish. A global pause holds all projects. Without `--project`, the CLI resolves the project from the current Git workspace, including worktrees. Projects/epics accept unique names or IDs; tasks accept full IDs or unique `TL-ABCD` codes.
+The project state controls tasks without an epic and the default state of new epics.
+Changing it does not change existing epic states. New epics copy the project's
+current state unless you specify `--paused`, `--active` or `--mode`.
+An active epic can run in a paused project; a paused epic waits even in an active
+project. Global scheduler pause and individual task pauses still take precedence.
+Pausing an epic or project lets existing turns finish.
+
+```sh
+taskline epic add --project website --name "Checkout" --paused
+taskline epic activate Checkout --project website
+taskline epic pause Checkout --project website
+taskline epic update Checkout --mode active --project website
+taskline epic list --project website
+taskline project stop website
+```
+
+`project stop` pauses the project and all its epics before requesting cancellation
+of its running tasks. Queued tasks stay on the board. If a stop request fails,
+the command reports the failure and leaves all pauses in place; retry the command
+to stop remaining work. Activating the project afterward leaves its epics paused;
+activate the desired epics separately.
+
+Without `--project`, the CLI resolves the project from the current Git workspace,
+including worktrees. Projects/epics accept unique names or IDs; tasks accept full
+IDs or unique `TL-ABCD` codes.
 
 ### Threads, priorities and blockers
 
@@ -117,6 +141,14 @@ taskline task list --blocked --json
 Priorities are `urgent`, `high`, `normal` (default), `low` and `none`. All blockers must reach **Review or Done**. Failed, cancelled, paused and missing blockers keep dependents waiting. Dependencies can span projects, but cannot form cycles. `--blocked-by` on `add`/`update` replaces the complete list; repeat it for several blockers. `block`/`unblock` edit individual links. Dependencies control admission, not branch merging; use a shared thread when work should continue in the same checkout.
 
 Use `--image file.png` for attachments and `--prompt-file -` for stdin. Task commands also include `show`, `pause`, `resume`, `cancel`, `accept`, `retry`, `revise`, `answer`, `approve`, `report` and `delete`. Run `taskline --help` for the full reference.
+
+Change a task's board status with `taskline task update TL-ABCD --status todo`.
+Supported values are `todo`, `review`, `done`, `cancelled` and `failed`. Moving to
+`todo` queues the task under the project's scheduling policy. You can move tasks
+directly to `review` or `done`, including work completed outside Taskline, without
+creating an execution attempt. Running tasks cannot be moved manually; use
+`task cancel` to stop them. Use `task retry` to reset a task for another attempt
+or `task accept` to mark it done.
 
 ## Results and local data
 

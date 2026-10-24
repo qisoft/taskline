@@ -129,6 +129,14 @@ export async function runTaskCommand(
     }
     if (action === "update") {
       const patch = planningPatch();
+      if (v.status !== undefined) {
+        const status = (
+          ["todo", "review", "done", "cancelled", "failed"] as const
+        ).find((status) => status === v.status);
+        if (!status)
+          throw Error("Choose status: todo, review, done, cancelled or failed");
+        patch.status = status;
+      }
       if (v.thread !== undefined || v["thread-key"] !== undefined)
         Object.assign(patch, taskTarget(t.projectId));
       if (v.title) patch.title = v.title;
@@ -145,7 +153,7 @@ export async function runTaskCommand(
               ).id;
       if (!Object.keys(patch).length)
         throw Error(
-          "Specify --title, --prompt, --epic, --thread, --thread-key, --priority or --blocked-by",
+          "Specify --title, --prompt, --epic, --thread, --thread-key, --priority, --blocked-by or --status",
         );
       emit(await api(path, patch, "PATCH"));
       return true;

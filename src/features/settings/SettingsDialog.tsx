@@ -187,6 +187,10 @@ export function SettingsDialog({
         </p>
         <hr />
         <h3>Project execution</h3>
+        <p className="muted small">
+          Project state controls tasks without an epic and the default for new
+          epics. Existing epics keep their own state.
+        </p>
         {state.projects.map((p) => {
           const policy = state.projectSettings.find(
             (s) => s.id === "project:" + p.id || s.id === p.id,

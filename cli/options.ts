@@ -50,17 +50,19 @@ Usage: taskline <resource> <command> [id] [options]
 
 project list | show [id] | create --name NAME --path DIR [--paused|--active]
 project pause [id] | activate [id] | set [id] [--mode paused|active] [--limit N]
+project stop [id]   Pause the project and all its epics; stop running tasks.
 thread list [--project PROJECT]
 model list
-epic list | show ID | add --name NAME [--project PROJECT] [--context-file FILE]
-epic update ID [--name NAME] [--context TEXT] [--criteria TEXT]
+epic list | show ID | add --name NAME [--project PROJECT] [--context-file FILE] [--paused|--active]
+epic update ID [--name NAME] [--context TEXT] [--criteria TEXT] [--mode paused|active]
+epic pause ID | activate ID | resume ID
 epic summarize ID | close ID | reopen ID | delete ID
 task list [--project PROJECT] [--epic EPIC] [--status STATUS] [--priority LEVEL] [--blocked] [--all]
 task add [--project PROJECT] [--epic EPIC] [--thread ID|new | --thread-key KEY] --prompt TEXT
          [--prompt-file FILE|-] [--title TITLE] [--image FILE] [--model MODEL]
          [--priority urgent|high|normal|low|none] [--blocked-by TASK ...]
 task show ID | update ID [--title TITLE] [--prompt TEXT] [--epic ID|none] [--thread ID|new | --thread-key KEY]
-         [--priority LEVEL] [--blocked-by TASK ... | --clear-blockers]
+         [--priority LEVEL] [--blocked-by TASK ... | --clear-blockers] [--status STATUS]
 task block ID --by TASK [--by TASK] | unblock ID --by TASK [--by TASK]
 task pause ID | resume ID | cancel ID | accept ID | retry ID | delete ID
 task revise ID --prompt TEXT | report ID
@@ -69,8 +71,11 @@ task approve ID --request ID --decision DECISION
 status | pause | resume | start
 
 Projects default to Paused when created. Activate a project explicitly to execute
-its queue. Pausing stops new starts; running T3 turns continue. New threads use
-separate Git worktrees, so use a Git workspace when creating a project.
+its ungrouped queue. Epic modes are independent: an active epic runs even in a
+paused project. Project changes affect only ungrouped tasks and the default for
+new epics; existing epic modes stay unchanged. Use --paused, --active or --mode
+when creating/updating an epic. Global/task pauses still apply; running turns continue.
+New threads use separate Git worktrees, so use a Git workspace when creating a project.
 Tasks with the same --thread-key in one project share one future thread, created
 when the first task starts. They run sequentially, independently of epic membership.
 Projects may be addressed by ID, unique name or ID prefix. Task codes TL-ABCD
@@ -80,6 +85,9 @@ Priority defaults to normal. Higher priorities start first among unblocked tasks
 Repeat --blocked-by to wait for multiple tasks; all must reach Review or Done.
 Failed/cancelled tasks remain blockers. Blockers can belong to other projects.
 On update, --blocked-by replaces the list; block/unblock adds/removes individual links.
+Update statuses: todo, review, done, cancelled, failed. Tasks can be moved to Review
+or Done without a Taskline execution attempt. Running tasks are controlled by T3;
+use cancel to stop them. Moving to todo queues the task under the project's policy.
 TASKLINE_URL / --url override http://127.0.0.1:4318. Taskline must be running.
 `;
 export type CliValues = Partial<

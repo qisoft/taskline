@@ -48,8 +48,17 @@ export class Store {
     this.transaction(() => {
       for (const group of this.list("groups")) {
         const projects = projectsByGroup.get(group.id);
-        if (!group.projectId && projects?.size === 1)
-          this.put("groups", { ...group, projectId: [...projects][0] });
+        const projectId =
+          group.projectId ||
+          (projects?.size === 1 ? [...projects][0] : undefined);
+        const mode =
+          group.mode ??
+          (projectId &&
+          this.settings("project:" + projectId).autoStart !== false
+            ? "active"
+            : "paused");
+        if (projectId !== group.projectId || mode !== group.mode)
+          this.put("groups", { ...group, projectId, mode });
       }
     });
   }

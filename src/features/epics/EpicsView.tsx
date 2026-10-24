@@ -1,5 +1,6 @@
 import { ArrowUpRight, Layers } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { EpicModeButton } from "./EpicModeButton.js";
 
 import { useWorkspaceContext } from "../../app/workspace-context.js";
 export function EpicsView() {
@@ -105,6 +106,11 @@ export function EpicsView() {
                   <p className="attention small">{g.summaryError}</p>
                 )}
                 <footer>
+                  <EpicModeButton
+                    group={g}
+                    onRefresh={refresh}
+                    onError={showError}
+                  />
                   <button
                     className="button"
                     onClick={() => {

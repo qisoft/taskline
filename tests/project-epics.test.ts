@@ -94,3 +94,53 @@ test("API enforces project ownership on epic creation and task assignment", asyn
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("API rejects invalid epic modes without saving partial changes", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "taskline-epic-mode-api-"));
+  const runtime = await startServer({ port: 0, dataDir: directory });
+  runtime.scheduler.stop();
+  runtime.scheduler.signal = () => {};
+  runtime.scheduler.projects = [{ id: "p", title: "P", workspaceRoot: "/p" }];
+  const request = async (
+    path: string,
+    body: unknown,
+    method: "POST" | "PATCH" = "POST",
+  ) =>
+    fetch("http://127.0.0.1:" + tcpPort(runtime.server) + "/api" + path, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  try {
+    const group = await (
+      await request("/groups", {
+        projectId: "p",
+        name: "Original",
+        mode: "paused",
+      })
+    ).json();
+    for (const mode of [null, "bad", true, 1, {}]) {
+      assert.equal(
+        (await request("/groups", { projectId: "p", name: "Invalid", mode }))
+          .status,
+        400,
+      );
+      assert.equal(
+        (
+          await request(
+            "/groups/" + group.id,
+            { name: "Rejected", mode },
+            "PATCH",
+          )
+        ).status,
+        400,
+      );
+      assert.equal(runtime.store.require("groups", group.id).name, "Original");
+      assert.equal(runtime.store.require("groups", group.id).mode, "paused");
+      assert.equal(runtime.store.list("groups").length, 1);
+    }
+  } finally {
+    runtime.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

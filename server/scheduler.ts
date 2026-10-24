@@ -21,6 +21,7 @@ import { SchedulerReporting } from "./scheduler-reporting.js";
 import { activeStates, terminal } from "./scheduler-state.js";
 import type { Store } from "./store.js";
 import type { T3Client } from "./t3.js";
+import { schedulingPauseReason } from "./epic-mode.js";
 import { compareTaskPriority, pendingBlockers } from "./task-planning.js";
 export class Scheduler {
   private execution: TaskExecution;
@@ -179,14 +180,22 @@ export class Scheduler {
           const task = this.store.get("tasks", candidate.id);
           if (!task || task.status !== "todo" || task.paused) continue;
           const policy = this.projectSettings(task.projectId);
-          if (!policy.autoStart) {
-            if (task.waitReason !== "Project is paused")
+          const pauseReason = schedulingPauseReason(
+            this.store.get("groups", task.groupId),
+            policy.autoStart,
+          );
+          if (pauseReason) {
+            if (task.waitReason !== pauseReason)
               this.store.update("tasks", task.id, {
-                waitReason: "Project is paused",
+                waitReason: pauseReason,
               });
             continue;
           }
-          if (task.waitReason === "Project is paused")
+          if (
+            ["Project is paused", "Epic is paused", "Epic is closed"].includes(
+              task.waitReason ?? "",
+            )
+          )
             this.store.update("tasks", task.id, { waitReason: null });
           const blockers = pendingBlockers(task, {
             get: (id) => this.store.get("tasks", id),

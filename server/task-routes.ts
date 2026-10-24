@@ -177,8 +177,6 @@ export function createTaskRoutes({
       ) {
         if ("groupId" in input && input.groupId !== task.groupId)
           validateGroup(input.groupId, task.projectId);
-        if (input.status === "done" && task.status !== "review")
-          throw Error("Only a reviewed task can be accepted");
         const patch: Partial<Task> = validateTaskPlanning(
           task,
           input,
@@ -205,8 +203,6 @@ export function createTaskRoutes({
           )
         )
           throw Error("Invalid task status");
-        if (input.status === "review" && !task.currentAttemptId)
-          throw Error("A task must execute before it can be reviewed");
         for (const key of [
           "title",
           "groupId",

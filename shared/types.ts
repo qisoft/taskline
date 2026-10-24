@@ -160,6 +160,7 @@ export interface Checkpoint {
 export interface Epic {
   id: string;
   projectId?: string;
+  mode?: string;
   name: string;
   context: string;
   acceptanceCriteria?: string;

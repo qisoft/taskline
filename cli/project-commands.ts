@@ -70,6 +70,10 @@ export async function runProjectCommand(
       });
       return true;
     }
+    if (action === "stop") {
+      emit(await api("/projects/" + encodeURIComponent(p.id) + "/stop", {}));
+      return true;
+    }
     if (["pause", "activate", "resume", "set", "update"].includes(action)) {
       const patch = executionPatch();
       if (action === "pause") patch.mode = "paused";
@@ -102,6 +106,7 @@ export async function runProjectCommand(
         await api("/groups", {
           projectId: p.id,
           name: v.name,
+          mode: executionPatch().mode,
           context: (await text("context")) || "",
           acceptanceCriteria: (await text("criteria")) || "",
         }),
@@ -127,8 +132,22 @@ export async function runProjectCommand(
       emit(await api(path, {}, "DELETE"));
       return true;
     }
-    if (["update", "close", "reopen"].includes(action)) {
+    if (
+      [
+        "update",
+        "set",
+        "pause",
+        "activate",
+        "resume",
+        "close",
+        "reopen",
+      ].includes(action)
+    ) {
       const patch: Partial<Settings & Epic> = {};
+      if (v.mode !== undefined || v.paused || v.active)
+        patch.mode = executionPatch().mode;
+      if (action === "pause") patch.mode = "paused";
+      if (["activate", "resume"].includes(action)) patch.mode = "active";
       if (v.name) patch.name = v.name;
       const context = await text("context"),
         criteria = await text("criteria");

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { asError } from "../shared/errors.js";
 import type { AppSettings, AppState, Epic, Task } from "../shared/types.js";
 import { runCommand } from "./commands.js";
+import { validateEpicMode } from "./epic-mode.js";
 import { body, respond } from "./http.js";
 import { dataDirectory, t3Home, toolCommand } from "./platform.js";
 import { ProjectService } from "./projects.js";
@@ -252,6 +253,9 @@ export async function startServer({
           id: randomUUID(),
           name: input.name.trim(),
           projectId: input.projectId!,
+          mode:
+            validateEpicMode(input.mode) ??
+            scheduler.projectSettings(input.projectId!).mode,
           context: input.context ?? "",
           acceptanceCriteria: input.acceptanceCriteria ?? "",
           contextVersion: 1,
@@ -263,6 +267,7 @@ export async function startServer({
         };
         store.put("groups", group);
         notify();
+        scheduler.signal();
         return respond(res, group, 201);
       }
       const groupRoute = path.match(/^\/api\/groups\/([^/]+)(?:\/([^/]+))?$/);
@@ -281,9 +286,11 @@ export async function startServer({
             store.update("tasks", t.id, { groupId: null });
           store.remove("groups", id);
           notify();
+          scheduler.signal();
           return respond(res, { ok: true });
         }
         if (req.method === "PATCH") {
+          const mode = validateEpicMode(input.mode);
           if ("projectId" in input && input.projectId !== group.projectId) {
             validateProject(input.projectId);
             if (group.projectId)
@@ -316,11 +323,14 @@ export async function startServer({
             ...group,
             ...input,
             id,
+            mode: mode ?? group.mode,
             contextVersion: group.contextVersion + (changed ? 1 : 0),
           };
           store.put("groups", update);
           notify();
-          scheduler.queueGroupReport(id);
+          scheduler.signal();
+          if (changed || input.status !== undefined)
+            scheduler.queueGroupReport(id);
           return respond(res, update);
         }
       }
@@ -364,6 +374,12 @@ export async function startServer({
         scheduler.signal();
         return respond(res, updated);
       }
+      const projectStop = path.match(/^\/api\/projects\/([^/]+)\/stop$/);
+      if (projectStop && req.method === "POST")
+        return respond(
+          res,
+          await projects.stop(decodeURIComponent(projectStop[1])),
+        );
       if (path.startsWith("/api/projects/") && req.method === "PATCH") {
         const id = decodeURIComponent(path.slice("/api/projects/".length));
         const input = await body(req);

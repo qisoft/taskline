@@ -59,6 +59,7 @@ test("CLI planning backlog and native Active/Paused controls share one durable p
       "--name",
       "Feature plan",
     ]);
+    expect(epic.mode).toBe("paused");
     const task = await cli([
       "task",
       "add",
@@ -119,6 +120,40 @@ test("CLI planning backlog and native Active/Paused controls share one durable p
       .toBe("active");
     await settings.getByRole("button", { name: "Close", exact: true }).click();
     await cli(["project", "pause", project.id]);
+    await page.getByRole("button", { name: /^Epics/ }).click();
+    const epicCard = page
+      .locator(".epic-card")
+      .filter({ hasText: "Feature plan" });
+    await expect(
+      epicCard.getByRole("button", {
+        name: "Activate epic Feature plan",
+        exact: true,
+      }),
+    ).toHaveText("Paused");
+    await cli(["epic", "activate", epic.id]);
+    await expect(
+      epicCard.getByRole("button", {
+        name: "Pause epic Feature plan",
+        exact: true,
+      }),
+    ).toHaveText("Active");
+    await cli(["project", "activate", project.id]);
+    await cli(["project", "pause", project.id]);
+    expect((await cli(["epic", "show", epic.id])).mode).toBe("active");
+    await epicCard
+      .getByRole("button", { name: "Pause epic Feature plan", exact: true })
+      .click();
+    await expect
+      .poll(async () => (await cli(["epic", "show", epic.id])).mode)
+      .toBe("paused");
+    await cli(["epic", "resume", epic.id]);
+    await cli(["project", "stop", project.id]);
+    await expect(
+      epicCard.getByRole("button", {
+        name: "Activate epic Feature plan",
+        exact: true,
+      }),
+    ).toHaveText("Paused");
     await expect(
       page.getByRole("button", {
         name: "Activate project Planning fixture",
@@ -137,6 +172,7 @@ test("CLI planning backlog and native Active/Paused controls share one durable p
     const details = await cli(["task", "show", task.id]);
     expect(details.task.status).toBe("todo");
     expect(details.attempts).toHaveLength(0);
+    expect((await cli(["epic", "show", epic.id])).mode).toBe("paused");
   } finally {
     await app?.close();
     runtime.close();

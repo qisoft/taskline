@@ -48,7 +48,9 @@ export function createTransport(v: CliValues, base: string) {
                   };
                   return [
                     row.code || row.id,
-                    row.mode || row.status || "",
+                    row.status === "done"
+                      ? "done"
+                      : row.mode || row.status || "",
                     ...(row.priority
                       ? [
                           row.priority,

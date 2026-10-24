@@ -10,6 +10,7 @@ import {
 import { asError } from "../../shared/errors.js";
 import { IconButton } from "../components/IconButton.js";
 import { api } from "../lib/api.js";
+import { EpicModeButton } from "../features/epics/EpicModeButton.js";
 
 import { useWorkspaceContext } from "./workspace-context.js";
 export function WorkspaceHeader() {
@@ -38,6 +39,13 @@ export function WorkspaceHeader() {
           </strong>
         </div>
         <div className="row">
+          {view === "board" && selectedGroup && (
+            <EpicModeButton
+              group={selectedGroup}
+              onRefresh={refresh}
+              onError={showError}
+            />
+          )}
           {selectedProject && (
             <button
               className="button project-mode-button"
@@ -47,7 +55,7 @@ export function WorkspaceHeader() {
                   ? "Activate project "
                   : "Pause project ") + selectedProject.title
               }
-              title="Paused projects keep queued tasks; running turns continue."
+              title="Controls tasks without an epic and the default for new epics. Existing epic modes stay unchanged."
               onClick={async () => {
                 setProjectModeBusy(true);
                 try {

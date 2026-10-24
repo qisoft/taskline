@@ -23,6 +23,7 @@ export function EpicEditor({
   const [name, setName] = useState(group?.name || "");
   const [context, setContext] = useState(group?.context || "");
   const [criteria, setCriteria] = useState(group?.acceptanceCriteria || "");
+  const [mode, setMode] = useState(group ? group.mode || "active" : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   return (
@@ -54,6 +55,24 @@ export function EpicEditor({
             placeholder="A goal that spans several tasks"
           />
         </label>
+        <label>
+          Scheduling
+          <select
+            aria-label="Epic scheduling"
+            value={mode}
+            onChange={(e) => setMode(e.target.value)}
+          >
+            {!group && (
+              <option value="">Use the project's current state</option>
+            )}
+            <option value="active">Active</option>
+            <option value="paused">Paused</option>
+          </select>
+        </label>
+        <p className="muted small">
+          Active epics can run while their project is paused. Running tasks
+          continue when an epic is paused.
+        </p>
         <label>
           Shared context
           <textarea
@@ -89,6 +108,7 @@ export function EpicEditor({
                   context,
                   acceptanceCriteria: criteria,
                   projectId: selectedProject,
+                  ...(mode ? { mode } : {}),
                 },
                 group ? "PATCH" : "POST",
               );

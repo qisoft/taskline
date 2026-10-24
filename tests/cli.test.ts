@@ -1,49 +1,11 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { test } from "node:test";
 import { startServer } from "../server/index.js";
 import { mockProjectCreation, tcpPort } from "./helpers.js";
-const cli = resolve("build/standalone/taskline.mjs");
-function run(
-  args: string[],
-  origin: string,
-  input = "",
-  cwd = process.cwd(),
-  json = true,
-) {
-  return new Promise<{
-    code: number | null;
-    out: string;
-    err: string;
-    data: ReturnType<typeof JSON.parse>;
-  }>((resolve) => {
-    const child = spawn(
-      process.execPath,
-      [cli, ...args, ...(json ? ["--json"] : [])],
-      {
-        cwd,
-        env: { ...process.env, TASKLINE_URL: origin },
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
-    let out = "",
-      err = "";
-    child.stdout.on("data", (c) => (out += c));
-    child.stderr.on("data", (c) => (err += c));
-    child.stdin.end(input);
-    child.on("close", (code) =>
-      resolve({
-        code,
-        out,
-        err,
-        data: code === 0 && json ? JSON.parse(out) : null,
-      }),
-    );
-  });
-}
+import { run } from "./cli-helpers.js";
 test("CLI manages paused planning projects, epics, stdin tasks, updates and statuses through the real local API", async () => {
   const directory = mkdtempSync(join(tmpdir(), "taskline-cli-"));
   const runtime = await startServer({ port: 0, dataDir: directory });
@@ -145,6 +107,56 @@ test("CLI manages paused planning projects, epics, stdin tasks, updates and stat
     await ok(["task", "pause", task.id]);
     assert.equal((await ok(["task", "show", task.id])).task.paused, true);
     await ok(["task", "resume", task.id]);
+    const updateStatus = (status: string) =>
+      ok(["task", "update", "TL-" + task.id.slice(0, 4), "--status", status]);
+    for (const status of [
+      "cancelled",
+      "failed",
+      "todo",
+      "review",
+      "done",
+      "todo",
+      "done",
+      "todo",
+    ]) {
+      assert.equal((await updateStatus(status)).status, status);
+      const details = await ok(["task", "show", task.id]);
+      assert.equal(details.task.status, status);
+      assert.equal(details.task.currentAttemptId, undefined);
+      assert.deepEqual(details.attempts, []);
+    }
+    for (const [status, message] of [
+      ["invalid", /Choose status/],
+      ["doing", /Choose status/],
+      ["", /Choose status/],
+    ] as const) {
+      const result = await run(
+        ["task", "update", task.id, "--status", status, "--title", "Rejected"],
+        origin,
+      );
+      assert.equal(result.code, 1);
+      assert.match(result.err, message);
+      assert.equal(runtime.store.require("tasks", task.id).status, "todo");
+      assert.equal(runtime.store.require("tasks", task.id).title, "Renamed");
+    }
+    runtime.store.update("tasks", task.id, {
+      status: "doing",
+      currentAttemptId: "fixture-attempt",
+    });
+    for (const status of ["todo", "review", "done", "failed", "cancelled"]) {
+      const running = await run(
+        ["task", "update", task.id, "--status", status],
+        origin,
+      );
+      assert.equal(running.code, 1);
+      assert.match(running.err, /Running task status is controlled by T3/);
+      assert.equal(runtime.store.require("tasks", task.id).status, "doing");
+    }
+    runtime.store.update("tasks", task.id, { status: "failed" });
+    assert.equal((await updateStatus("review")).status, "review");
+    assert.equal((await updateStatus("done")).status, "done");
+    assert.equal((await updateStatus("todo")).status, "todo");
+    runtime.store.update("tasks", task.id, { currentAttemptId: null });
     await ok(["project", "activate", p.id]);
     assert.equal((await ok(["project", "show", p.id])).mode, "active");
     await ok(["project", "pause", p.id]);

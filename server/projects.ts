@@ -63,6 +63,46 @@ export class ProjectService {
       mode: settings.autoStart === false ? "paused" : "active",
     };
   }
+  async stop(id: string) {
+    if (!this.scheduler.projects.some((p) => p.id === id))
+      throw Error("Project not found");
+    const settings: Settings = {
+      ...this.scheduler.projectSettings(id),
+      id: "project:" + id,
+      autoStart: false,
+    };
+    delete settings.mode;
+    const epics = this.store.list("groups").filter((g) => g.projectId === id);
+    this.store.transaction(() => {
+      this.store.put("settings", settings);
+      for (const group of epics)
+        this.store.put("groups", { ...group, mode: "paused" });
+    });
+    this.notify();
+    this.scheduler.signal();
+    const tasks = this.store
+      .list("tasks")
+      .filter((t) => t.projectId === id && t.status === "doing");
+    const results = await Promise.allSettled(
+      tasks.map((t) => this.scheduler.cancel(t.id)),
+    );
+    const failures = results.flatMap((result, i) =>
+      result.status === "rejected"
+        ? [tasks[i].id + ": " + asError(result.reason).message]
+        : [],
+    );
+    if (failures.length)
+      throw Error(
+        "Project and all its epics are paused, but some tasks could not be stopped: " +
+          failures.join("; "),
+      );
+    return {
+      ...settings,
+      mode: "paused",
+      pausedEpics: epics.length,
+      stopRequestedTaskIds: tasks.map((t) => t.id),
+    };
+  }
   async create(input: ProjectInput) {
     if (!input.title?.trim()) throw Error("Enter a project name");
     if (!input.workspaceRoot || !isAbsolute(input.workspaceRoot))
