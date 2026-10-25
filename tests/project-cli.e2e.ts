@@ -97,10 +97,8 @@ test("CLI planning backlog and native Active/Paused controls share one durable p
       name: "Task details",
       exact: true,
     });
-    await taskDetails.getByRole("textbox", { name: "Task labels" }).fill("UI");
-    await taskDetails
-      .getByRole("textbox", { name: "Task labels" })
-      .press("Enter");
+    await taskDetails.getByLabel("Task labels", { exact: true }).fill("UI");
+    await taskDetails.getByLabel("Task labels", { exact: true }).press("Enter");
     await expect(
       taskDetails.getByRole("button", { name: "Remove label UI", exact: true }),
     ).toBeVisible();
@@ -168,8 +166,8 @@ test("CLI planning backlog and native Active/Paused controls share one durable p
       .filter({ hasText: "Feature plan" });
     await epicCard.getByRole("button", { name: "Edit", exact: true }).click();
     const editor = page.getByRole("dialog", { name: "Edit epic", exact: true });
-    await editor.getByRole("textbox", { name: "Epic labels" }).fill("UI");
-    await editor.getByRole("textbox", { name: "Epic labels" }).press("Enter");
+    await editor.getByLabel("Epic labels", { exact: true }).fill("UI");
+    await editor.getByLabel("Epic labels", { exact: true }).press("Enter");
     await expect(
       editor.getByRole("button", { name: "Remove label UI", exact: true }),
     ).toBeVisible();
