@@ -2,6 +2,7 @@ import { ArrowUpRight, Check, ChevronRight, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { priorities } from "../../../server/task-planning.js";
 import { asError } from "../../../shared/errors.js";
+import { availableLabels } from "../../../shared/labels.js";
 import type {
   AppState,
   Priority,
@@ -14,6 +15,7 @@ import { columns, label, time } from "../../lib/task-presentation.js";
 import { BlockerPicker } from "./BlockerPicker.js";
 import { TaskOverview } from "./TaskOverview.js";
 import { ValidationImages } from "./ValidationImages.js";
+import { LabelEditor } from "../labels/LabelEditor.js";
 
 export function TaskDetail({
   id,
@@ -112,6 +114,20 @@ export function TaskDetail({
             {columns.find((c) => c.id === task.status)?.title || task.status}
           </div>
           <h1>{task.title}</h1>
+          <LabelEditor
+            name="Task labels"
+            value={task.labels ?? []}
+            disabled={busy}
+            suggestions={availableLabels(
+              [...state.tasks, ...state.groups].filter(
+                (item) => item.projectId === task.projectId,
+              ),
+            )}
+            onChange={async (patch) => {
+              await api("/tasks/" + id, patch, "PATCH");
+              await onRefresh();
+            }}
+          />
           <div className="detail-properties">
             <span>Project</span>
             <strong>{project?.title}</strong>

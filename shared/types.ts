@@ -97,6 +97,7 @@ export interface Task extends ValidationArtifacts {
   status: TaskStatus;
   executionState: string;
   priority?: Priority;
+  labels?: string[];
   blockedBy?: string[];
   blockingTaskIds?: string[];
   rank: number;
@@ -161,6 +162,7 @@ export interface Epic {
   id: string;
   projectId?: string;
   mode?: string;
+  labels?: string[];
   name: string;
   context: string;
   acceptanceCriteria?: string;

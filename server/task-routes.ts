@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AppSettings, Task } from "../shared/types.js";
+import { labelFields, labelPatch } from "../shared/labels.js";
 import { body, respond } from "./http.js";
 import type { Scheduler } from "./scheduler.js";
 import type { Store } from "./store.js";
@@ -64,6 +65,8 @@ export function createTaskRoutes({
           task,
           { priority: "normal", blockedBy: [] },
           validateTaskPlanning(task, input, store.list("tasks")),
+          { labels: [] },
+          labelPatch([], input),
         );
         Object.assign(
           task,
@@ -94,7 +97,7 @@ export function createTaskRoutes({
     const taskRoute = path.match(/^\/api\/tasks\/([^/]+)(?:\/([^/]+))?$/);
     if (taskRoute) {
       const [, id, action] = taskRoute;
-      const task = store.get("tasks", id);
+      let task = store.get("tasks", id);
       if (!task) return respond(res, { error: "Task not found" }, 404);
       if (req.method === "GET")
         return respond(res, {
@@ -103,6 +106,8 @@ export function createTaskRoutes({
           events: store.list("events").filter((e) => e.taskId === id),
         });
       const input = await body(req);
+      task = store.get("tasks", id);
+      if (!task) return respond(res, { error: "Task not found" }, 404);
       if (req.method === "DELETE") {
         if (task.status === "doing")
           throw Error("Stop the task before deleting it");
@@ -182,6 +187,7 @@ export function createTaskRoutes({
           input,
           store.list("tasks"),
         );
+        Object.assign(patch, labelPatch(task.labels, input));
         if ("prompt" in input) {
           if (task.status !== "todo")
             throw Error(
@@ -226,9 +232,11 @@ export function createTaskRoutes({
         });
         notify();
         scheduler.signal();
-        if (task.groupId && task.groupId !== updated.groupId)
-          scheduler.queueGroupReport(task.groupId);
-        if (updated.groupId) scheduler.queueGroupReport(updated.groupId);
+        if (Object.keys(input).some((key) => !labelFields.includes(key))) {
+          if (task.groupId && task.groupId !== updated.groupId)
+            scheduler.queueGroupReport(task.groupId);
+          if (updated.groupId) scheduler.queueGroupReport(updated.groupId);
+        }
         return respond(res, presentTask(updated));
       }
     }

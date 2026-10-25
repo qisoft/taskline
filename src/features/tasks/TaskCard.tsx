@@ -10,6 +10,7 @@ import { pendingBlockers, priorities } from "../../../server/task-planning.js";
 import type { AppState, Task } from "../../../shared/types.js";
 import { label } from "../../lib/task-presentation.js";
 import { ImagePreview } from "../images/ImageViewer.js";
+import { LabelList } from "../labels/LabelList.js";
 
 export function TaskCard({
   task,
@@ -60,6 +61,7 @@ export function TaskCard({
         <MoreHorizontal size={15} />
       </div>
       <h3>{task.title}</h3>
+      <LabelList labels={task.labels} />
       {task.attachments?.[0] && (
         <ImagePreview
           image={task.attachments[0]}

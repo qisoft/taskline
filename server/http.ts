@@ -1,8 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Answers, Task } from "../shared/types.js";
+import type { LabelChanges } from "../shared/labels.js";
 import type { ProjectInput } from "./projects.js";
 export interface ApiInput
   extends Partial<Omit<Task, "questions">>, ProjectInput {
+  addLabels?: LabelChanges["addLabels"];
+  removeLabels?: LabelChanges["removeLabels"];
   origin: string;
   token: string;
   base64: string;

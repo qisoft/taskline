@@ -142,6 +142,30 @@ Priorities are `urgent`, `high`, `normal` (default), `low` and `none`. All block
 
 Use `--image file.png` for attachments and `--prompt-file -` for stdin. Task commands also include `show`, `pause`, `resume`, `cancel`, `accept`, `retry`, `revise`, `answer`, `approve`, `report` and `delete`. Run `taskline --help` for the full reference.
 
+### Labels
+
+Tasks and epics have independent labels. Add or remove them in the task details
+or epic editor, or assign them when creating a task or epic. Cards show their
+labels, and both the board and epics view can filter by label.
+
+```sh
+taskline epic add --project website --name "Checkout" --label roadmap
+taskline task add --project website --prompt "Fix checkout" --label bug --label payments
+taskline task update TL-ABCD --add-label urgent --remove-label payments
+taskline epic update Checkout --add-label review --project website
+taskline task list --project website --label bug --label urgent
+taskline epic list --project website --label review
+taskline task update TL-ABCD --clear-labels
+```
+
+Repeat `--label` on create/update to set or replace the complete label list.
+Use `--add-label` and `--remove-label` to change individual labels without
+replacing concurrent edits, or `--clear-labels` to remove all. Repeating `--label`
+on list requires all specified labels. Matching and duplicate detection ignore
+case; surrounding whitespace is trimmed. Each item supports up to 20 labels of
+1–64 characters. Labels do not change scheduling or execution history and are
+not automatically inherited from an epic.
+
 Change a task's board status with `taskline task update TL-ABCD --status todo`.
 Supported values are `todo`, `review`, `done`, `cancelled` and `failed`. Moving to
 `todo` queues the task under the project's scheduling policy. You can move tasks

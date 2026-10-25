@@ -27,6 +27,7 @@ export function pendingBlockers(
 export function taskPlanningView(task: Task, tasksById: Map<string, Task>) {
   return {
     ...task,
+    labels: task.labels ?? [],
     priority: task.priority ?? "normal",
     blockedBy: task.blockedBy ?? [],
     blockingTaskIds: pendingBlockers(task, tasksById),

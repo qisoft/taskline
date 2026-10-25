@@ -2,6 +2,7 @@ import { ImagePlus, Mic, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { priorities } from "../../../server/task-planning.js";
 import { asError } from "../../../shared/errors.js";
+import { availableLabels, labelPatch } from "../../../shared/labels.js";
 import type {
   AppState,
   ImageAttachment,
@@ -21,6 +22,7 @@ import {
 import { EpicEditor } from "../epics/EpicEditor.js";
 import { ImagePreview } from "../images/ImageViewer.js";
 import { BlockerPicker } from "./BlockerPicker.js";
+import { LabelEditor } from "../labels/LabelEditor.js";
 
 export function Composer({
   state,
@@ -63,6 +65,7 @@ export function Composer({
   const [attachments, setAttachments] = useState(initialAttachments);
   const [priority, setPriority] = useState("normal");
   const [blockedBy, setBlockedBy] = useState<string[]>([]);
+  const [labels, setLabels] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const threads = useMemo(
@@ -139,6 +142,7 @@ export function Composer({
         attachments,
         priority,
         blockedBy,
+        labels,
       });
       sessionStorage.removeItem("taskline-draft");
       onCreated(task);
@@ -341,6 +345,19 @@ export function Composer({
             />
           </div>
         </div>
+        <LabelEditor
+          name="Task labels"
+          value={labels}
+          disabled={busy}
+          suggestions={availableLabels(
+            [...state.tasks, ...state.groups].filter(
+              (item) => item.projectId === projectId,
+            ),
+          )}
+          onChange={(patch) =>
+            setLabels((current) => labelPatch(current, patch).labels ?? current)
+          }
+        />
         {error && (
           <div className="error" role="alert">
             {error}
@@ -350,6 +367,7 @@ export function Composer({
       {epicEditor && (
         <EpicEditor
           projects={state.projects}
+          labelledItems={[...state.tasks, ...state.groups]}
           projectId={projectId}
           onClose={() => setEpicEditor(false)}
           onSave={async (group) => {

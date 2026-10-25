@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import type { Epic, Settings } from "../shared/types.js";
 import type { CliContext } from "./context.js";
+import { matchesLabels, normalizeLabels } from "../shared/labels.js";
+import { cliLabelPatch } from "./labels.js";
 const asError = (value: unknown): Error =>
   value instanceof Error ? value : new Error(String(value));
 export async function runProjectCommand(
@@ -96,7 +98,13 @@ export async function runProjectCommand(
   if (kind === "epic") {
     if (action === "list") {
       const p = v.all ? null : await project();
-      emit(state.groups.filter((g) => !p || g.projectId === p.id));
+      const required = v.label ? normalizeLabels(v.label) : [];
+      emit(
+        state.groups.filter(
+          (g) =>
+            (!p || g.projectId === p.id) && matchesLabels(g.labels, required),
+        ),
+      );
       return true;
     }
     if (action === "add" || action === "create") {
@@ -107,6 +115,7 @@ export async function runProjectCommand(
           projectId: p.id,
           name: v.name,
           mode: executionPatch().mode,
+          ...cliLabelPatch(v),
           context: (await text("context")) || "",
           acceptanceCriteria: (await text("criteria")) || "",
         }),
@@ -143,7 +152,8 @@ export async function runProjectCommand(
         "reopen",
       ].includes(action)
     ) {
-      const patch: Partial<Settings & Epic> = {};
+      const patch: Partial<Settings & Epic> & ReturnType<typeof cliLabelPatch> =
+        cliLabelPatch(v);
       if (v.mode !== undefined || v.paused || v.active)
         patch.mode = executionPatch().mode;
       if (action === "pause") patch.mode = "paused";

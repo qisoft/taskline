@@ -1,6 +1,10 @@
 import { ArrowUpRight, Layers } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { EpicModeButton } from "./EpicModeButton.js";
+import { useState } from "react";
+import { matchesLabels } from "../../../shared/labels.js";
+import { LabelList } from "../labels/LabelList.js";
+import { LabelFilter } from "../labels/LabelFilter.js";
 
 import { useWorkspaceContext } from "../../app/workspace-context.js";
 export function EpicsView() {
@@ -16,11 +20,23 @@ export function EpicsView() {
     showError,
     projectGroups,
   } = useWorkspaceContext();
+  const [selectedLabel, setSelectedLabel] = useState("");
+  const visibleGroups = projectGroups.filter((group) =>
+    matchesLabels(group.labels, selectedLabel ? [selectedLabel] : []),
+  );
   return (
     <>
       {view === "epics" && (
         <div className="epics-grid">
-          {projectGroups.map((g) => {
+          <div className="epic-label-filter">
+            <LabelFilter
+              items={projectGroups}
+              value={selectedLabel}
+              onChange={setSelectedLabel}
+              name="Filter epics by label"
+            />
+          </div>
+          {visibleGroups.map((g) => {
             const tasks = state.tasks.filter((t) => t.groupId === g.id);
             return (
               <article className="epic-card" key={g.id}>
@@ -52,6 +68,7 @@ export function EpicsView() {
                   </button>
                 </div>
                 <h2>{g.name}</h2>
+                <LabelList labels={g.labels} />
                 <p>{g.context || "No shared context yet."}</p>
                 <div className="epic-progress">
                   <div
@@ -160,6 +177,17 @@ export function EpicsView() {
               </article>
             );
           })}
+          {projectGroups.length > 0 && visibleGroups.length === 0 && (
+            <div className="empty-state">
+              <p>No epics match this label.</p>
+              <button
+                className="text-button"
+                onClick={() => setSelectedLabel("")}
+              >
+                Clear label filter
+              </button>
+            </div>
+          )}
           {projectGroups.length === 0 && (
             <div className="empty-state">
               <Layers size={32} />

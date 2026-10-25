@@ -1,19 +1,27 @@
 import { useState } from "react";
 import { asError } from "../../../shared/errors.js";
+import {
+  availableLabels,
+  labelDelta,
+  labelPatch,
+} from "../../../shared/labels.js";
 import type { AppState, Epic } from "../../../shared/types.js";
 import { Modal } from "../../components/Modal.js";
 import { api } from "../../lib/api.js";
+import { LabelEditor } from "../labels/LabelEditor.js";
 
 export function EpicEditor({
   group,
   projects,
   projectId,
+  labelledItems = [],
   onClose,
   onSave,
 }: {
   group?: Partial<Epic> | null;
   projects: AppState["projects"];
   projectId?: string;
+  labelledItems?: Pick<Epic, "projectId" | "labels">[];
   onClose: () => void;
   onSave: (group: Epic) => unknown;
 }) {
@@ -24,6 +32,7 @@ export function EpicEditor({
   const [context, setContext] = useState(group?.context || "");
   const [criteria, setCriteria] = useState(group?.acceptanceCriteria || "");
   const [mode, setMode] = useState(group ? group.mode || "active" : "");
+  const [labels, setLabels] = useState(group?.labels ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   return (
@@ -91,6 +100,17 @@ export function EpicEditor({
             placeholder="How will you know this epic is complete?"
           />
         </label>
+        <LabelEditor
+          name="Epic labels"
+          value={labels}
+          disabled={busy}
+          suggestions={availableLabels(
+            labelledItems.filter((item) => item.projectId === selectedProject),
+          )}
+          onChange={(patch) =>
+            setLabels((current) => labelPatch(current, patch).labels ?? current)
+          }
+        />
         {error && <div className="error">{error}</div>}
       </div>
       <footer>
@@ -109,6 +129,7 @@ export function EpicEditor({
                   acceptanceCriteria: criteria,
                   projectId: selectedProject,
                   ...(mode ? { mode } : {}),
+                  ...(group ? labelDelta(group.labels, labels) : { labels }),
                 },
                 group ? "PATCH" : "POST",
               );

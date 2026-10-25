@@ -58,6 +58,8 @@ test("CLI planning backlog and native Active/Paused controls share one durable p
       project.id,
       "--name",
       "Feature plan",
+      "--label",
+      "Roadmap",
     ]);
     expect(epic.mode).toBe("paused");
     const task = await cli([
@@ -69,6 +71,8 @@ test("CLI planning backlog and native Active/Paused controls share one durable p
       epic.id,
       "--prompt",
       "Local CLI planning fixture. No agent executes this task.",
+      "--label",
+      "Bug",
     ]);
     app = await launch();
     let page = await app.firstWindow();
@@ -79,6 +83,44 @@ test("CLI planning backlog and native Active/Paused controls share one durable p
         exact: true,
       }),
     ).toBeVisible();
+    const taskCard = page.getByRole("article", {
+      name: task.title,
+      exact: true,
+    });
+    await expect(taskCard.locator(".item-labels")).toHaveText("Bug");
+    await cli(["task", "update", task.id, "--add-label", "Reviewed"]);
+    await page
+      .getByRole("combobox", { name: "Filter tasks by label" })
+      .selectOption("reviewed");
+    await taskCard.click();
+    const taskDetails = page.getByRole("dialog", {
+      name: "Task details",
+      exact: true,
+    });
+    await taskDetails.getByRole("textbox", { name: "Task labels" }).fill("UI");
+    await taskDetails
+      .getByRole("textbox", { name: "Task labels" })
+      .press("Enter");
+    await expect(
+      taskDetails.getByRole("button", { name: "Remove label UI", exact: true }),
+    ).toBeVisible();
+    await taskDetails
+      .getByRole("button", { name: "Remove label Bug", exact: true })
+      .click();
+    await expect
+      .poll(async () => (await cli(["task", "show", task.id])).task.labels)
+      .toEqual(["Reviewed", "UI"]);
+    await taskDetails
+      .getByRole("button", { name: "Close details", exact: true })
+      .click();
+    await page
+      .getByRole("combobox", { name: "Filter tasks by label" })
+      .selectOption("ui");
+    await cli(["task", "update", task.id, "--remove-label", "UI"]);
+    await expect(taskCard).not.toBeVisible();
+    await page
+      .getByRole("combobox", { name: "Filter tasks by label" })
+      .selectOption("");
     await expect(
       page
         .locator(".column-todo")
@@ -124,6 +166,25 @@ test("CLI planning backlog and native Active/Paused controls share one durable p
     const epicCard = page
       .locator(".epic-card")
       .filter({ hasText: "Feature plan" });
+    await epicCard.getByRole("button", { name: "Edit", exact: true }).click();
+    const editor = page.getByRole("dialog", { name: "Edit epic", exact: true });
+    await editor.getByRole("textbox", { name: "Epic labels" }).fill("UI");
+    await editor.getByRole("textbox", { name: "Epic labels" }).press("Enter");
+    await expect(
+      editor.getByRole("button", { name: "Remove label UI", exact: true }),
+    ).toBeVisible();
+    await editor
+      .getByRole("button", { name: "Save epic", exact: true })
+      .click();
+    await page
+      .getByRole("combobox", { name: "Filter epics by label" })
+      .selectOption("ui");
+    await expect(epicCard).toBeVisible();
+    await cli(["epic", "update", epic.id, "--remove-label", "UI"]);
+    await expect(epicCard).not.toBeVisible();
+    await page
+      .getByRole("combobox", { name: "Filter epics by label" })
+      .selectOption("");
     await expect(
       epicCard.getByRole("button", {
         name: "Activate epic Feature plan",
@@ -172,6 +233,8 @@ test("CLI planning backlog and native Active/Paused controls share one durable p
     const details = await cli(["task", "show", task.id]);
     expect(details.task.status).toBe("todo");
     expect(details.attempts).toHaveLength(0);
+    expect(details.task.labels).toEqual(["Reviewed"]);
+    expect((await cli(["epic", "show", epic.id])).labels).toEqual(["Roadmap"]);
     expect((await cli(["epic", "show", epic.id])).mode).toBe("paused");
   } finally {
     await app?.close();

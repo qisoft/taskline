@@ -42,6 +42,7 @@ export function createTransport(v: CliValues, base: string) {
                     mode?: string;
                     status?: string;
                     priority?: string;
+                    labels?: string[];
                     blockingTaskIds?: string[];
                     title?: string;
                     name?: string;
@@ -65,6 +66,9 @@ export function createTransport(v: CliValues, base: string) {
                         ]
                       : []),
                     row.title || row.name || "",
+                    ...(row.labels?.length
+                      ? ["labels: " + row.labels.join(", ")]
+                      : []),
                   ].join("\t");
                 })
                 .join("\n")

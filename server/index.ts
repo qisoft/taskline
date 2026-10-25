@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { asError } from "../shared/errors.js";
+import { labelPatch } from "../shared/labels.js";
 import type { AppSettings, AppState, Epic, Task } from "../shared/types.js";
 import { runCommand } from "./commands.js";
 import { validateEpicMode } from "./epic-mode.js";
@@ -86,7 +87,9 @@ export async function startServer({
   };
   const state = (): AppState => ({
     tasks: taskViews().sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    groups: store.list("groups"),
+    groups: store
+      .list("groups")
+      .map((group) => ({ ...group, labels: group.labels ?? [] })),
     projects: scheduler.projects,
     threads: scheduler.threads,
     threadTargets: store.list("threadTargets"),
@@ -260,6 +263,7 @@ export async function startServer({
           acceptanceCriteria: input.acceptanceCriteria ?? "",
           contextVersion: 1,
           decisions: [],
+          labels: labelPatch([], input).labels ?? [],
           status: "active",
           summary: null,
           summaryState: "idle",
@@ -273,9 +277,11 @@ export async function startServer({
       const groupRoute = path.match(/^\/api\/groups\/([^/]+)(?:\/([^/]+))?$/);
       if (groupRoute) {
         const [, id, action] = groupRoute;
-        const group = store.get("groups", id);
+        let group = store.get("groups", id);
         if (!group) return respond(res, { error: "Epic not found" }, 404);
         const input = await body(req);
+        group = store.get("groups", id);
+        if (!group) return respond(res, { error: "Epic not found" }, 404);
         if (action === "summarize") {
           scheduler.queueGroupReport(id);
           notify();
@@ -322,10 +328,13 @@ export async function startServer({
           const update = {
             ...group,
             ...input,
+            ...labelPatch(group.labels, input),
             id,
             mode: mode ?? group.mode,
             contextVersion: group.contextVersion + (changed ? 1 : 0),
           };
+          delete update.addLabels;
+          delete update.removeLabels;
           store.put("groups", update);
           notify();
           scheduler.signal();

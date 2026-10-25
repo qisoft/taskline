@@ -39,11 +39,14 @@ for (const key of [
   "all",
   "blocked",
   "clear-blockers",
+  "clear-labels",
 ])
   options[key] = { type: "boolean" };
 options.image = { type: "string", multiple: true };
 options["blocked-by"] = { type: "string", multiple: true };
 options.by = { type: "string", multiple: true };
+for (const key of ["label", "add-label", "remove-label"])
+  options[key] = { type: "string", multiple: true };
 export const usage = `Taskline — local task board for T3 Code
 
 Usage: taskline <resource> <command> [id] [options]
@@ -53,16 +56,16 @@ project pause [id] | activate [id] | set [id] [--mode paused|active] [--limit N]
 project stop [id]   Pause the project and all its epics; stop running tasks.
 thread list [--project PROJECT]
 model list
-epic list | show ID | add --name NAME [--project PROJECT] [--context-file FILE] [--paused|--active]
-epic update ID [--name NAME] [--context TEXT] [--criteria TEXT] [--mode paused|active]
+epic list [--label LABEL] | show ID | add --name NAME [--project PROJECT] [--context-file FILE] [--paused|--active] [--label LABEL]
+epic update ID [--name NAME] [--context TEXT] [--criteria TEXT] [--mode paused|active] [label options]
 epic pause ID | activate ID | resume ID
 epic summarize ID | close ID | reopen ID | delete ID
-task list [--project PROJECT] [--epic EPIC] [--status STATUS] [--priority LEVEL] [--blocked] [--all]
+task list [--project PROJECT] [--epic EPIC] [--status STATUS] [--priority LEVEL] [--label LABEL] [--blocked] [--all]
 task add [--project PROJECT] [--epic EPIC] [--thread ID|new | --thread-key KEY] --prompt TEXT
          [--prompt-file FILE|-] [--title TITLE] [--image FILE] [--model MODEL]
-         [--priority urgent|high|normal|low|none] [--blocked-by TASK ...]
+         [--priority urgent|high|normal|low|none] [--blocked-by TASK ...] [--label LABEL]
 task show ID | update ID [--title TITLE] [--prompt TEXT] [--epic ID|none] [--thread ID|new | --thread-key KEY]
-         [--priority LEVEL] [--blocked-by TASK ... | --clear-blockers] [--status STATUS]
+         [--priority LEVEL] [--blocked-by TASK ... | --clear-blockers] [--status STATUS] [label options]
 task block ID --by TASK [--by TASK] | unblock ID --by TASK [--by TASK]
 task pause ID | resume ID | cancel ID | accept ID | retry ID | delete ID
 task revise ID --prompt TEXT | report ID
@@ -85,6 +88,10 @@ Priority defaults to normal. Higher priorities start first among unblocked tasks
 Repeat --blocked-by to wait for multiple tasks; all must reach Review or Done.
 Failed/cancelled tasks remain blockers. Blockers can belong to other projects.
 On update, --blocked-by replaces the list; block/unblock adds/removes individual links.
+Labels: repeat --label to set/replace the full list; --clear-labels removes all.
+Use --add-label / --remove-label on update to change individual labels atomically.
+Labels are independent for tasks and epics. Matching ignores case. Repeated --label
+on list requires all specified labels. Use up to 20 labels, each 1–64 characters.
 Update statuses: todo, review, done, cancelled, failed. Tasks can be moved to Review
 or Done without a Taskline execution attempt. Running tasks are controlled by T3;
 use cancel to stop them. Moving to todo queues the task under the project's policy.
@@ -128,7 +135,15 @@ export type CliValues = Partial<
       | "mkdir"
       | "all"
       | "blocked"
-      | "clear-blockers",
+      | "clear-blockers"
+      | "clear-labels",
       boolean
-    > & { image: string[]; "blocked-by": string[]; by: string[] }
+    > & {
+      image: string[];
+      "blocked-by": string[];
+      by: string[];
+      label: string[];
+      "add-label": string[];
+      "remove-label": string[];
+    }
 >;

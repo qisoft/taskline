@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import type { CliContext } from "./context.js";
 import { priorityLevels } from "./options.js";
+import { matchesLabels, normalizeLabels } from "../shared/labels.js";
+import { cliLabelPatch } from "./labels.js";
 export async function runTaskCommand(
   kind: string,
   action: string,
@@ -39,6 +41,10 @@ export async function runTaskCommand(
           (t) => (t.priority ?? "normal") === v.priority!.toLowerCase(),
         );
       if (v.blocked) rows = rows.filter((t) => t.blockingTaskIds?.length);
+      if (v.label) {
+        const required = normalizeLabels(v.label);
+        rows = rows.filter((t) => matchesLabels(t.labels, required));
+      }
       rows.sort(
         (a, b) =>
           priorityLevels.indexOf(a.priority ?? "normal") -
@@ -93,6 +99,7 @@ export async function runTaskCommand(
           groupId,
           ...target,
           ...planningPatch(),
+          ...cliLabelPatch(v),
           prompt,
           title: v.title,
           model:
@@ -128,7 +135,7 @@ export async function runTaskCommand(
       return true;
     }
     if (action === "update") {
-      const patch = planningPatch();
+      const patch = { ...planningPatch(), ...cliLabelPatch(v) };
       if (v.status !== undefined) {
         const status = (
           ["todo", "review", "done", "cancelled", "failed"] as const
@@ -153,7 +160,7 @@ export async function runTaskCommand(
               ).id;
       if (!Object.keys(patch).length)
         throw Error(
-          "Specify --title, --prompt, --epic, --thread, --thread-key, --priority, --blocked-by or --status",
+          "Specify --title, --prompt, --epic, --thread, --thread-key, --priority, --blocked-by, --status or label options",
         );
       emit(await api(path, patch, "PATCH"));
       return true;

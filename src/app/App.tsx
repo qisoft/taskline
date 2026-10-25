@@ -57,7 +57,12 @@ export function App() {
       (project === "all" || t.projectId === project) &&
       (group === "all" || t.groupId === group) &&
       (!search ||
-        [t.title, t.prompt, state.groups.find((g) => g.id === t.groupId)?.name]
+        [
+          t.title,
+          t.prompt,
+          ...(t.labels ?? []),
+          state.groups.find((g) => g.id === t.groupId)?.name,
+        ]
           .join(" ")
           .toLowerCase()
           .includes(search.toLowerCase())),
@@ -138,6 +143,7 @@ export function App() {
           <EpicEditor
             group={epicEditor.id ? epicEditor : null}
             projects={state.projects}
+            labelledItems={[...state.tasks, ...state.groups]}
             projectId={selectedProject?.id}
             onClose={() => setEpicEditor(null)}
             onSave={refresh}

@@ -3,6 +3,10 @@ import { compareTaskPriority } from "../../../server/task-planning.js";
 import { IconButton } from "../../components/IconButton.js";
 import { columns } from "../../lib/task-presentation.js";
 import { TaskCard } from "../tasks/TaskCard.js";
+import { useState } from "react";
+import { matchesLabels } from "../../../shared/labels.js";
+import { LabelList } from "../labels/LabelList.js";
+import { LabelFilter } from "../labels/LabelFilter.js";
 
 import { useWorkspaceContext } from "../../app/workspace-context.js";
 export function BoardView() {
@@ -28,6 +32,7 @@ export function BoardView() {
     projectGroups,
     policy,
   } = useWorkspaceContext();
+  const [selectedLabel, setSelectedLabel] = useState("");
   return (
     <>
       {view === "board" && (
@@ -53,6 +58,12 @@ export function BoardView() {
                   </option>
                 ))}
               </select>
+              <LabelFilter
+                items={filtered}
+                value={selectedLabel}
+                onChange={setSelectedLabel}
+                name="Filter tasks by label"
+              />
               <span className="toolbar-divider" />
               <Search size={14} />
               <input
@@ -99,6 +110,7 @@ export function BoardView() {
               <p className="preserve-text">
                 {selectedGroup.context || "Add shared context for this epic."}
               </p>
+              <LabelList labels={selectedGroup.labels} />
               {selectedGroup.summary && (
                 <p className="muted">{selectedGroup.summary.overview}</p>
               )}
@@ -107,6 +119,12 @@ export function BoardView() {
           <div className="kanban">
             {columns.map((column) => {
               const tasks = filtered
+                .filter((task) =>
+                  matchesLabels(
+                    task.labels,
+                    selectedLabel ? [selectedLabel] : [],
+                  ),
+                )
                 .filter((t) =>
                   column.id === "todo"
                     ? ["todo", "failed"].includes(t.status)

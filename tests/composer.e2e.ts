@@ -247,11 +247,21 @@ test("inline epic inherits the project and the submitted task retains project, e
   await page.getByRole("button", { name: "Create new epic" }).click();
   await expect(page.getByLabel("Epic project")).toHaveValue("opus");
   await page.getByLabel("Epic name").fill("New Opus epic");
+  await page.getByLabel("Epic labels", { exact: true }).fill("Roadmap");
+  await page.getByLabel("Epic labels", { exact: true }).press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Remove label Roadmap", exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Save epic", exact: true }).click();
   await expect(page.getByLabel("Epic", { exact: true })).toHaveValue(
     "new-epic",
   );
   await page.getByLabel("Task prompt").fill("Test the composer");
+  await page.getByLabel("Task labels", { exact: true }).fill("Bug");
+  await page.getByLabel("Task labels", { exact: true }).press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Remove label Bug", exact: true }),
+  ).toBeVisible();
   const request = page.waitForRequest(
     (req) => req.url().endsWith("/api/tasks") && req.method() === "POST",
   );
@@ -262,6 +272,7 @@ test("inline epic inherits the project and the submitted task retains project, e
     instanceId: "claude",
     model: "opus-5.5",
     threadId: "opus-thread",
+    labels: ["Bug"],
   });
 });
 
